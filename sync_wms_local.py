@@ -490,7 +490,7 @@ def run_sync_cycle(drive_svc, bq_client, is_full, dry_run, folder):
 
     elapsed = (datetime.now() - start_time).seconds
     timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"\n[{timestamp_str}] Đã quét xong ({elapsed}s) — Đã nạp mới: {total_synced} file | Không đổi: {total_skipped} file")
+    print(f"\n[{timestamp_str}] Đã quét xong ({elapsed}s) — Đã nạp mới: {total_synced} file | Không đổi: {total_skipped} file", flush=True)
     return {
         "synced": total_synced,
         "skipped": total_skipped,

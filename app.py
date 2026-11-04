@@ -150,6 +150,9 @@ def background_sync_worker():
         sync_state["error"] = "Không tìm thấy module sync_wms_local"
         return
 
+    # Nghỉ 10 giây ban đầu để ứng dụng hoàn tất việc nạp dữ liệu và hiển thị trang đầu tiên
+    time.sleep(10)
+
     while True:
         try:
             sync_state["is_running"] = True
@@ -2645,17 +2648,18 @@ def main():
 
         # 5. THÔNG TIN TRẠNG THÁI ĐỒNG BỘ TINH GỌN (SYNC STATUS)
         sync_state = get_global_sync_state()
+        last_sync_time = sync_state.get("last_sync")
         if sync_state.get("error"):
             sync_time_text = f"{t.get('sync_error', 'Lỗi đồng bộ:')} {sync_state['error'][:40]}"
             badge_icon = "🔴"
-        elif sync_state.get("is_running"):
-            sync_time_text = t['sync_running']
-            badge_icon = "🟡"
-        elif sync_state.get("last_sync"):
-            sync_time_text = f"{t['sync_last_time']} {sync_state['last_sync']}"
+        elif last_sync_time:
+            sync_time_text = f"{t['sync_last_time']} {last_sync_time}"
             if sync_state.get("synced_count", 0) > 0:
                 sync_time_text += f" ({sync_state['synced_count']} {t['sync_new_files']})"
             badge_icon = "🟢"
+        elif sync_state.get("is_running"):
+            sync_time_text = t['sync_running']
+            badge_icon = "🟡"
         else:
             sync_time_text = t['sync_init']
             badge_icon = "🟢"
