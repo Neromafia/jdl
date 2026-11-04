@@ -28,6 +28,11 @@ except Exception as _e_sync:
     build_service = None
     bq_module = None
     SYNC_PROJECT_ID = "jingdong-505914"
+try:
+    if hasattr(st, "secrets") and "gcp_service_account" in st.secrets:
+        PROJECT_ID = st.secrets["gcp_service_account"].get("project_id", PROJECT_ID)
+except Exception:
+    pass
 
 # ==========================================
 # QUẢN LÝ TIẾN TRÌNH ĐỒNG BỘ CHẠY NGẦM (DAEMON THREAD)
@@ -51,7 +56,10 @@ def background_sync_worker():
     try:
         creds = get_sync_credentials()
         drive_svc = build_service("drive", "v3", credentials=creds)
-        bq_client = bq_module.Client(credentials=creds, project=SYNC_PROJECT_ID)
+        sync_proj = getattr(creds, "project_id", None) or SYNC_PROJECT_ID
+        if hasattr(st, "secrets") and "gcp_service_account" in st.secrets:
+            sync_proj = st.secrets["gcp_service_account"].get("project_id", sync_proj)
+        bq_client = bq_module.Client(credentials=creds, project=sync_proj)
     except Exception as e:
         GLOBAL_SYNC_STATE["error"] = str(e)
         GLOBAL_SYNC_STATE["is_running"] = False
@@ -832,20 +840,59 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+def get_gcp_credentials(scopes=None):
+    """
+    Lấy thông tin xác thực Google Cloud:
+    1. Ưu tiên đọc từ Streamlit Secrets (st.secrets) theo định dạng TOML khi deploy lên Streamlit Cloud.
+    2. Fallback đọc file service_account.json tại máy local nếu có.
+    """
+    # 1. Thử đọc từ st.secrets (Streamlit Cloud TOML)
+    try:
+        if hasattr(st, "secrets"):
+            sec = None
+            if "gcp_service_account" in st.secrets:
+                sec = dict(st.secrets["gcp_service_account"])
+            elif "service_account" in st.secrets:
+                sec = dict(st.secrets["service_account"])
+            elif "gcp" in st.secrets:
+                sec = dict(st.secrets["gcp"])
+            elif "type" in st.secrets and st.secrets.get("type") == "service_account":
+                sec = dict(st.secrets)
+
+            if sec:
+                proj_id = sec.get("project_id", PROJECT_ID)
+                if scopes:
+                    return service_account.Credentials.from_service_account_info(sec, scopes=scopes), proj_id, None
+                return service_account.Credentials.from_service_account_info(sec), proj_id, None
+    except Exception:
+        pass
+
+    # 2. Fallback đọc file service_account.json local
+    if os.path.exists(CREDENTIALS_FILE):
+        try:
+            if scopes:
+                return service_account.Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=scopes), PROJECT_ID, None
+            return service_account.Credentials.from_service_account_file(CREDENTIALS_FILE), PROJECT_ID, None
+        except Exception as e_file:
+            return None, PROJECT_ID, f"Lỗi đọc file {CREDENTIALS_FILE}: {str(e_file)}"
+
+    return None, PROJECT_ID, "Không tìm thấy cấu hình xác thực trong st.secrets (TOML) hoặc file service_account.json."
+
+
 # ==========================================
 # KHỞI TẠO BIGQUERY CLIENT & CACHING
 # ==========================================
 @st.cache_resource
 def get_bigquery_client():
-    """Khởi tạo BigQuery Client sử dụng service account file."""
-    if not os.path.exists(CREDENTIALS_FILE):
-        return None, f"Không tìm thấy file xác thực '{CREDENTIALS_FILE}' tại thư mục gốc."
+    """Khởi tạo BigQuery Client sử dụng st.secrets (TOML) hoặc service account file."""
+    credentials, proj_id, error = get_gcp_credentials(
+        scopes=["https://www.googleapis.com/auth/cloud-platform"]
+    )
+    if error or credentials is None:
+        return None, error
+
     try:
-        credentials = service_account.Credentials.from_service_account_file(
-            CREDENTIALS_FILE,
-            scopes=["https://www.googleapis.com/auth/cloud-platform"],
-        )
-        client = bigquery.Client(credentials=credentials, project=PROJECT_ID)
+        client = bigquery.Client(credentials=credentials, project=proj_id or PROJECT_ID)
         return client, None
     except Exception as e:
         return None, f"Lỗi khởi tạo BigQuery Client: {str(e)}"

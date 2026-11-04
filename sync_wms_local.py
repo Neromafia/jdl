@@ -25,6 +25,12 @@ warnings.filterwarnings("ignore")
 # CONFIG
 # ══════════════════════════════════════════════════════════════
 PROJECT_ID   = "jingdong-505914"
+try:
+    import streamlit as _st_check
+    if hasattr(_st_check, "secrets") and "gcp_service_account" in _st_check.secrets:
+        PROJECT_ID = _st_check.secrets["gcp_service_account"].get("project_id", PROJECT_ID)
+except Exception:
+    pass
 DATASET_ID   = "wms_data"
 LOG_TABLE    = f"{PROJECT_ID}.{DATASET_ID}.sync_file_logs"
 
@@ -253,6 +259,25 @@ def select_files_to_scan(all_files: list, is_full_sync: bool) -> list:
     return selected
 
 def get_credentials():
+    # 1. Ưu tiên đọc từ Streamlit secrets (định dạng TOML trên Streamlit Cloud)
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets"):
+            sec = None
+            if "gcp_service_account" in st.secrets:
+                sec = dict(st.secrets["gcp_service_account"])
+            elif "service_account" in st.secrets:
+                sec = dict(st.secrets["service_account"])
+            elif "gcp" in st.secrets:
+                sec = dict(st.secrets["gcp"])
+            elif "type" in st.secrets and st.secrets.get("type") == "service_account":
+                sec = dict(st.secrets)
+            if sec:
+                return service_account.Credentials.from_service_account_info(sec, scopes=SCOPES)
+    except Exception:
+        pass
+
+    # 2. Fallback đọc file local service_account.json
     if os.path.exists(SERVICE_ACCOUNT_JSON):
         return service_account.Credentials.from_service_account_file(
             SERVICE_ACCOUNT_JSON, scopes=SCOPES)
@@ -331,7 +356,10 @@ def sync_folder(cfg, drive_svc, bq_client, processed_map, is_full_sync, dry_run,
             if fname.lower().endswith(".csv"):
                 df = pd.read_csv(fh)
             else:
-                df = pd.read_excel(fh, sheet_name=0, engine="calamine")
+                try:
+                    df = pd.read_excel(fh, sheet_name=0, engine="calamine")
+                except Exception:
+                    df = pd.read_excel(fh, sheet_name=0)
 
             df.columns = [str(c).strip() for c in df.columns]
             _original_columns_for_debug = list(df.columns)
