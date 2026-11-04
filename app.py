@@ -13,94 +13,8 @@ from streamlit_option_menu import option_menu
 from google.cloud import bigquery
 from google.oauth2 import service_account
 
-# Import module đồng bộ từ Google Drive lên BigQuery
-try:
-    from sync_wms_local import (
-        get_credentials as get_sync_credentials,
-        run_sync_cycle,
-        build as build_service,
-        bigquery as bq_module,
-        PROJECT_ID as SYNC_PROJECT_ID
-    )
-except Exception as _e_sync:
-    get_sync_credentials = None
-    run_sync_cycle = None
-    build_service = None
-    bq_module = None
-    SYNC_PROJECT_ID = "jingdong-505914"
-try:
-    if hasattr(st, "secrets") and "gcp_service_account" in st.secrets:
-        PROJECT_ID = st.secrets["gcp_service_account"].get("project_id", PROJECT_ID)
-except Exception:
-    pass
-
 # ==========================================
-# QUẢN LÝ TIẾN TRÌNH ĐỒNG BỘ CHẠY NGẦM (DAEMON THREAD)
-# ==========================================
-GLOBAL_SYNC_STATE = {
-    "thread_started": False,
-    "is_running": False,
-    "last_sync": None,
-    "synced_count": 0,
-    "skipped_count": 0,
-    "error": None
-}
-SYNC_LOCK = threading.Lock()
-
-def background_sync_worker():
-    """Luồng ngầm định kỳ quét và nạp file mới từ Google Drive lên BigQuery mỗi 300 giây (5 phút)."""
-    if not get_sync_credentials or not run_sync_cycle:
-        GLOBAL_SYNC_STATE["error"] = "Không tìm thấy module sync_wms_local"
-        return
-
-    try:
-        creds = get_sync_credentials()
-        drive_svc = build_service("drive", "v3", credentials=creds)
-        sync_proj = getattr(creds, "project_id", None) or SYNC_PROJECT_ID
-        if hasattr(st, "secrets") and "gcp_service_account" in st.secrets:
-            sync_proj = st.secrets["gcp_service_account"].get("project_id", sync_proj)
-        bq_client = bq_module.Client(credentials=creds, project=sync_proj)
-    except Exception as e:
-        GLOBAL_SYNC_STATE["error"] = str(e)
-        GLOBAL_SYNC_STATE["is_running"] = False
-        return
-
-    while True:
-        try:
-            GLOBAL_SYNC_STATE["is_running"] = True
-            # Chạy Quick sync (is_full_sync=False, dry_run=False, folder=None)
-            res = run_sync_cycle(drive_svc, bq_client, is_full=False, dry_run=False, folder=None)
-            now_vn = datetime.datetime.now(timezone(timedelta(hours=7)))
-            GLOBAL_SYNC_STATE["last_sync"] = now_vn.strftime("%H:%M:%S %d/%m/%Y")
-            if isinstance(res, dict):
-                GLOBAL_SYNC_STATE["synced_count"] = res.get("synced", 0)
-                GLOBAL_SYNC_STATE["skipped_count"] = res.get("skipped", 0)
-            GLOBAL_SYNC_STATE["error"] = None
-        except Exception as err:
-            GLOBAL_SYNC_STATE["error"] = str(err)
-        finally:
-            GLOBAL_SYNC_STATE["is_running"] = False
-
-        # Nghỉ đúng 300 giây (5 phút) trước lần quét kế tiếp
-        time.sleep(300)
-
-def ensure_background_sync_started():
-    """Khởi tạo background thread duy nhất cho toàn bộ app."""
-    with SYNC_LOCK:
-        if not GLOBAL_SYNC_STATE["thread_started"]:
-            sync_thread = threading.Thread(
-                target=background_sync_worker,
-                daemon=True,
-                name="WMS_Background_Sync_Thread"
-            )
-            sync_thread.start()
-            GLOBAL_SYNC_STATE["thread_started"] = True
-
-# Tự động kích hoạt luồng đồng bộ ngầm khi ứng dụng khởi chạy
-ensure_background_sync_started()
-
-# ==========================================
-# CẤU HÌNH TRANG STREAMLIT (KHÔNG SỬ DỤNG ICON)
+# CẤU HÌNH TRANG STREAMLIT (Lệnh Streamlit đầu tiên)
 # ==========================================
 st.set_page_config(
     page_title="WMS Operations Dashboard",
@@ -116,6 +30,172 @@ DATASET_ID = "wms_data"
 CREDENTIALS_FILE = "service_account.json"
 VN_TIMEZONE = timezone(timedelta(hours=7))
 VN_TZ = VN_TIMEZONE
+
+try:
+    if hasattr(st, "secrets") and "gcp_service_account" in st.secrets:
+        PROJECT_ID = st.secrets["gcp_service_account"].get("project_id", PROJECT_ID)
+except Exception:
+    pass
+
+# ==========================================
+# XÁC THỰC GCP VÀ KHỞI TẠO BIGQUERY CLIENT
+# ==========================================
+def get_gcp_credentials(scopes=None):
+    """
+    Lấy thông tin xác thực Google Cloud:
+    1. Ưu tiên đọc từ Streamlit Secrets (st.secrets) theo định dạng TOML khi deploy lên Streamlit Cloud.
+    2. Fallback đọc file service_account.json tại máy local nếu có.
+    """
+    try:
+        if hasattr(st, "secrets"):
+            sec = None
+            if "gcp_service_account" in st.secrets:
+                sec = dict(st.secrets["gcp_service_account"])
+            elif "service_account" in st.secrets:
+                sec = dict(st.secrets["service_account"])
+            elif "gcp" in st.secrets:
+                sec = dict(st.secrets["gcp"])
+            elif "type" in st.secrets and st.secrets.get("type") == "service_account":
+                sec = dict(st.secrets)
+
+            if sec:
+                proj_id = sec.get("project_id", PROJECT_ID)
+                if scopes:
+                    return service_account.Credentials.from_service_account_info(sec, scopes=scopes), proj_id, None
+                return service_account.Credentials.from_service_account_info(sec), proj_id, None
+    except Exception:
+        pass
+
+    if os.path.exists(CREDENTIALS_FILE):
+        try:
+            if scopes:
+                return service_account.Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=scopes), PROJECT_ID, None
+            return service_account.Credentials.from_service_account_file(CREDENTIALS_FILE), PROJECT_ID, None
+        except Exception as e_file:
+            return None, PROJECT_ID, f"Lỗi đọc file {CREDENTIALS_FILE}: {str(e_file)}"
+
+    return None, PROJECT_ID, "Không tìm thấy cấu hình xác thực trong st.secrets (TOML) hoặc file service_account.json."
+
+
+@st.cache_resource
+def get_bigquery_client():
+    """Khởi tạo BigQuery Client sử dụng st.secrets (TOML) hoặc service account file."""
+    credentials, proj_id, error = get_gcp_credentials(
+        scopes=["https://www.googleapis.com/auth/cloud-platform"]
+    )
+    if error or credentials is None:
+        return None, error
+
+    try:
+        client = bigquery.Client(credentials=credentials, project=proj_id or PROJECT_ID)
+        return client, None
+    except Exception as e:
+        return None, f"Lỗi khởi tạo BigQuery Client: {str(e)}"
+
+
+# Import module đồng bộ từ Google Drive lên BigQuery
+try:
+    from sync_wms_local import (
+        get_credentials as get_sync_credentials,
+        run_sync_cycle,
+        build as build_service,
+        bigquery as bq_module,
+        PROJECT_ID as SYNC_PROJECT_ID
+    )
+except Exception as _e_sync:
+    get_sync_credentials = None
+    run_sync_cycle = None
+    build_service = None
+    bq_module = None
+    SYNC_PROJECT_ID = PROJECT_ID
+
+# ==========================================
+# QUẢN LÝ TIẾN TRÌNH ĐỒNG BỘ CHẠY NGẦM (DAEMON THREAD & CACHE RESOURCE)
+# ==========================================
+@st.cache_resource
+def get_global_sync_state():
+    """
+    Singleton dictionary lưu trạng thái đồng bộ toàn cục.
+    Tồn tại xuyên suốt vòng đời tiến trình, không bị reset khi người dùng thao tác UI hoặc rerun.
+    Khởi tạo ngay mốc thời gian đồng bộ gần nhất từ bảng `sync_file_logs` trên BigQuery.
+    """
+    initial_last_sync = None
+    try:
+        client, _ = get_bigquery_client()
+        if client:
+            sql = f"SELECT MAX(synced_at) as last_synced FROM `{PROJECT_ID}.{DATASET_ID}.sync_file_logs`"
+            df_log = client.query(sql).to_dataframe()
+            if not df_log.empty and pd.notnull(df_log.iloc[0]['last_synced']):
+                t_utc = df_log.iloc[0]['last_synced']
+                t_vn = t_utc.tz_convert(VN_TZ) if hasattr(t_utc, "tz_convert") else t_utc + timedelta(hours=7)
+                initial_last_sync = t_vn.strftime("%H:%M:%S %d/%m/%Y")
+    except Exception:
+        pass
+
+    return {
+        "thread_started": False,
+        "is_running": False,
+        "last_sync": initial_last_sync,
+        "synced_count": 0,
+        "skipped_count": 0,
+        "error": None
+    }
+
+SYNC_LOCK = threading.Lock()
+
+def background_sync_worker():
+    """Luồng ngầm định kỳ quét và nạp file mới từ Google Drive lên BigQuery mỗi 300 giây (5 phút)."""
+    sync_state = get_global_sync_state()
+    if not get_sync_credentials or not run_sync_cycle:
+        sync_state["error"] = "Không tìm thấy module sync_wms_local"
+        return
+
+    try:
+        creds = get_sync_credentials()
+        drive_svc = build_service("drive", "v3", credentials=creds)
+        sync_proj = getattr(creds, "project_id", None) or SYNC_PROJECT_ID
+        if hasattr(st, "secrets") and "gcp_service_account" in st.secrets:
+            sync_proj = st.secrets["gcp_service_account"].get("project_id", sync_proj)
+        bq_client = bq_module.Client(credentials=creds, project=sync_proj)
+    except Exception as e:
+        sync_state["error"] = str(e)
+        sync_state["is_running"] = False
+        return
+
+    while True:
+        try:
+            sync_state["is_running"] = True
+            # Chạy Quick sync (is_full_sync=False, dry_run=False, folder=None)
+            res = run_sync_cycle(drive_svc, bq_client, is_full=False, dry_run=False, folder=None)
+            now_vn = datetime.datetime.now(timezone(timedelta(hours=7)))
+            sync_state["last_sync"] = now_vn.strftime("%H:%M:%S %d/%m/%Y")
+            if isinstance(res, dict):
+                sync_state["synced_count"] = res.get("synced", 0)
+                sync_state["skipped_count"] = res.get("skipped", 0)
+            sync_state["error"] = None
+        except Exception as err:
+            sync_state["error"] = str(err)
+        finally:
+            sync_state["is_running"] = False
+
+        # Nghỉ đúng 300 giây (5 phút) trước lần quét kế tiếp
+        time.sleep(300)
+
+def ensure_background_sync_started():
+    """Khởi tạo background thread duy nhất cho toàn bộ app."""
+    sync_state = get_global_sync_state()
+    with SYNC_LOCK:
+        if not sync_state["thread_started"]:
+            sync_thread = threading.Thread(
+                target=background_sync_worker,
+                daemon=True,
+                name="WMS_Background_Sync_Thread"
+            )
+            sync_thread.start()
+            sync_state["thread_started"] = True
+
+# Tự động kích hoạt luồng đồng bộ ngầm khi ứng dụng khởi chạy
+ensure_background_sync_started()
 
 # Quy tắc chuẩn hóa khách hàng:
 # B2B: Gộp CHINT, KKV (bao gồm JINHE), ENVISION
@@ -272,6 +352,7 @@ TRANSLATIONS = {
         "sync_running": "Đang đồng bộ từ Drive...",
         "sync_init": "Đang khởi động đồng bộ ngầm...",
         "sync_new_files": "file mới",
+        "sync_error": "Lỗi đồng bộ:",
         "developed_by": "Phát triển bởi bộ phận kiểm soát chất lượng"
     },
     "ZH": {
@@ -420,6 +501,7 @@ TRANSLATIONS = {
         "sync_running": "正在从云端Drive同步...",
         "sync_init": "正在执行首次后台同步...",
         "sync_new_files": "个新文件",
+        "sync_error": "同步异常:",
         "developed_by": "由质量控制部开发"
     }
 }
@@ -838,64 +920,6 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
-
-
-def get_gcp_credentials(scopes=None):
-    """
-    Lấy thông tin xác thực Google Cloud:
-    1. Ưu tiên đọc từ Streamlit Secrets (st.secrets) theo định dạng TOML khi deploy lên Streamlit Cloud.
-    2. Fallback đọc file service_account.json tại máy local nếu có.
-    """
-    # 1. Thử đọc từ st.secrets (Streamlit Cloud TOML)
-    try:
-        if hasattr(st, "secrets"):
-            sec = None
-            if "gcp_service_account" in st.secrets:
-                sec = dict(st.secrets["gcp_service_account"])
-            elif "service_account" in st.secrets:
-                sec = dict(st.secrets["service_account"])
-            elif "gcp" in st.secrets:
-                sec = dict(st.secrets["gcp"])
-            elif "type" in st.secrets and st.secrets.get("type") == "service_account":
-                sec = dict(st.secrets)
-
-            if sec:
-                proj_id = sec.get("project_id", PROJECT_ID)
-                if scopes:
-                    return service_account.Credentials.from_service_account_info(sec, scopes=scopes), proj_id, None
-                return service_account.Credentials.from_service_account_info(sec), proj_id, None
-    except Exception:
-        pass
-
-    # 2. Fallback đọc file service_account.json local
-    if os.path.exists(CREDENTIALS_FILE):
-        try:
-            if scopes:
-                return service_account.Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=scopes), PROJECT_ID, None
-            return service_account.Credentials.from_service_account_file(CREDENTIALS_FILE), PROJECT_ID, None
-        except Exception as e_file:
-            return None, PROJECT_ID, f"Lỗi đọc file {CREDENTIALS_FILE}: {str(e_file)}"
-
-    return None, PROJECT_ID, "Không tìm thấy cấu hình xác thực trong st.secrets (TOML) hoặc file service_account.json."
-
-
-# ==========================================
-# KHỞI TẠO BIGQUERY CLIENT & CACHING
-# ==========================================
-@st.cache_resource
-def get_bigquery_client():
-    """Khởi tạo BigQuery Client sử dụng st.secrets (TOML) hoặc service account file."""
-    credentials, proj_id, error = get_gcp_credentials(
-        scopes=["https://www.googleapis.com/auth/cloud-platform"]
-    )
-    if error or credentials is None:
-        return None, error
-
-    try:
-        client = bigquery.Client(credentials=credentials, project=proj_id or PROJECT_ID)
-        return client, None
-    except Exception as e:
-        return None, f"Lỗi khởi tạo BigQuery Client: {str(e)}"
 
 
 # ==========================================
@@ -2625,13 +2649,17 @@ def main():
             st.rerun()
 
         # 5. THÔNG TIN TRẠNG THÁI ĐỒNG BỘ TINH GỌN (SYNC STATUS)
-        if GLOBAL_SYNC_STATE.get("is_running"):
+        sync_state = get_global_sync_state()
+        if sync_state.get("error"):
+            sync_time_text = f"{t.get('sync_error', 'Lỗi đồng bộ:')} {sync_state['error'][:40]}"
+            badge_icon = "🔴"
+        elif sync_state.get("is_running"):
             sync_time_text = t['sync_running']
             badge_icon = "🟡"
-        elif GLOBAL_SYNC_STATE.get("last_sync"):
-            sync_time_text = f"{t['sync_last_time']} {GLOBAL_SYNC_STATE['last_sync']}"
-            if GLOBAL_SYNC_STATE.get("synced_count", 0) > 0:
-                sync_time_text += f" ({GLOBAL_SYNC_STATE['synced_count']} {t['sync_new_files']})"
+        elif sync_state.get("last_sync"):
+            sync_time_text = f"{t['sync_last_time']} {sync_state['last_sync']}"
+            if sync_state.get("synced_count", 0) > 0:
+                sync_time_text += f" ({sync_state['synced_count']} {t['sync_new_files']})"
             badge_icon = "🟢"
         else:
             sync_time_text = t['sync_init']
