@@ -150,21 +150,16 @@ def background_sync_worker():
         sync_state["error"] = "Không tìm thấy module sync_wms_local"
         return
 
-    try:
-        creds = get_sync_credentials()
-        drive_svc = build_service("drive", "v3", credentials=creds)
-        sync_proj = getattr(creds, "project_id", None) or SYNC_PROJECT_ID
-        if hasattr(st, "secrets") and "gcp_service_account" in st.secrets:
-            sync_proj = st.secrets["gcp_service_account"].get("project_id", sync_proj)
-        bq_client = bq_module.Client(credentials=creds, project=sync_proj)
-    except Exception as e:
-        sync_state["error"] = str(e)
-        sync_state["is_running"] = False
-        return
-
     while True:
         try:
             sync_state["is_running"] = True
+            creds = get_sync_credentials()
+            drive_svc = build_service("drive", "v3", credentials=creds, cache_discovery=False)
+            sync_proj = getattr(creds, "project_id", None) or SYNC_PROJECT_ID
+            if hasattr(st, "secrets") and "gcp_service_account" in st.secrets:
+                sync_proj = st.secrets["gcp_service_account"].get("project_id", sync_proj)
+            bq_client = bq_module.Client(credentials=creds, project=sync_proj)
+
             # Chạy Quick sync (is_full_sync=False, dry_run=False, folder=None)
             res = run_sync_cycle(drive_svc, bq_client, is_full=False, dry_run=False, folder=None)
             now_vn = datetime.datetime.now(timezone(timedelta(hours=7)))

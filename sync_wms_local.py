@@ -311,19 +311,25 @@ def sync_folder(cfg, drive_svc, bq_client, processed_map, is_full_sync, dry_run,
 
     print(f"\n📂 {folder_name}", flush=True)
 
-    try:
-        results = drive_svc.files().list(
-            q=f"'{cfg['folder_id']}' in parents and trashed=false",
-            fields="files(id,name,modifiedTime)",
-            supportsAllDrives=True,
-            includeItemsFromAllDrives=True,
-            pageSize=200,
-        ).execute()
-        all_files = [f for f in results.get("files", [])
-                     if f["name"].lower().endswith((".xlsx",".xls",".csv"))]
-    except Exception as e:
-        print(f"  ❌ Lỗi liệt kê file: {e}")
-        return 0, 0
+    all_files = []
+    for attempt in range(2):
+        try:
+            results = drive_svc.files().list(
+                q=f"'{cfg['folder_id']}' in parents and trashed=false",
+                fields="files(id,name,modifiedTime)",
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
+                pageSize=200,
+            ).execute()
+            all_files = [f for f in results.get("files", [])
+                         if f["name"].lower().endswith((".xlsx",".xls",".csv"))]
+            break
+        except Exception as e:
+            if attempt == 0:
+                time.sleep(2)
+                continue
+            print(f"  ❌ Lỗi liệt kê file: {e}")
+            return 0, 0
 
     candidates = select_files_to_scan(all_files, is_full_sync)
 
