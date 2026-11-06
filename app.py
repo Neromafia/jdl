@@ -138,6 +138,7 @@ def get_global_sync_state():
         "last_sync": initial_last_sync,
         "synced_count": 0,
         "skipped_count": 0,
+        "data_version": time.time(),
         "error": None
     }
 
@@ -191,6 +192,12 @@ def background_sync_worker():
             if isinstance(res, dict):
                 sync_state["synced_count"] = res.get("synced", 0)
                 sync_state["skipped_count"] = res.get("skipped", 0)
+                if res.get("synced", 0) > 0:
+                    try:
+                        st.cache_data.clear()
+                    except Exception:
+                        pass
+                    sync_state["data_version"] = time.time()
             sync_state["error"] = None
         except Exception as err:
             sync_state["error"] = str(err)
@@ -1026,7 +1033,7 @@ st.markdown("""
 # TRUY VẤN DỮ LIỆU ĐA KHÂU TỐI ƯU
 # ==========================================
 @st.cache_data(ttl=300, show_spinner=False)
-def fetch_inventory_data():
+def fetch_inventory_data(cache_version: float = 0.0):
     """
     Truy vấn dữ liệu chi tiết kiểm kê trong kho từ BigQuery.
     - inventory_check_no: Mã nhiệm vụ kiểm kê
@@ -1085,7 +1092,7 @@ def fetch_inventory_data():
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def fetch_stage_data(stage_key: str):
+def fetch_stage_data(stage_key: str, cache_version: float = 0.0):
     """
     Truy vấn gom nhóm dữ liệu theo từng khâu trực tiếp từ BigQuery.
     - Chuẩn hóa khách hàng B2B: gộp trùng tên CHINT, KKV (bao gồm JINHE), ENVISION.
@@ -1156,7 +1163,7 @@ DOW_BENCHMARK_UPH = {
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def fetch_weekly_all_clients(start_date_str: str, end_date_str: str) -> dict:
+def fetch_weekly_all_clients(start_date_str: str, end_date_str: str, cache_version: float = 0.0) -> dict:
     """Truy vấn sản lượng đơn và PCS thực tế theo ngày cho tất cả khách hàng (không viết tắt)."""
     client, error = get_bigquery_client()
     if error or client is None:
@@ -1202,7 +1209,7 @@ def fetch_weekly_all_clients(start_date_str: str, end_date_str: str) -> dict:
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def fetch_dow_baselines() -> dict:
+def fetch_dow_baselines(cache_version: float = 0.0) -> dict:
     """Truy vấn trung bình đơn & PCS theo từng Thứ trong tuần (DOW 1..7) cho tất cả khách hàng (không viết tắt)."""
     client, error = get_bigquery_client()
     if error or client is None:
@@ -1259,7 +1266,7 @@ def fetch_dow_baselines() -> dict:
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def fetch_backlog_data():
+def fetch_backlog_data(cache_version: float = 0.0):
     """Truy vấn dữ liệu tồn đọng backlog & lịch sự kiện cho khâu DỰ KIẾN."""
     client, error = get_bigquery_client()
     if error or client is None:
@@ -1328,7 +1335,7 @@ def filter_by_date_range(df: pd.DataFrame, start_date: datetime.date, end_date: 
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def fetch_hourly_worker_data(stage_key: str, start_date: datetime.date, end_date: datetime.date):
+def fetch_hourly_worker_data(stage_key: str, start_date: datetime.date, end_date: datetime.date, cache_version: float = 0.0):
     """
     Truy vấn sản lượng theo giờ và theo nhân viên cho khâu Picking và Packing.
     """
@@ -1506,7 +1513,7 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
         t['lbl_display_metric'],
         options=[t["opt_qty"], t["opt_orders"]],
         horizontal=True,
-        key="day_tab_metric_choice"
+        key=f"day_tab_metric_choice_{stage_key}"
     )
 
     val_col = 'total_qty' if metric_choice == t["opt_qty"] else 'total_orders'
@@ -1557,7 +1564,7 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
             file_name=f"hourly_customers_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}.csv",
             mime="text/csv",
             use_container_width=True,
-            key="btn_dl_hourly_cust"
+            key=f"btn_dl_hourly_cust_{stage_key}"
         )
 
     # 4. BẢNG SẢN LƯỢNG THEO TỪNG KHUNG GIỜ THEO NHÂN VIÊN (Áp dụng cho Nhặt hàng & Đóng gói)
@@ -1565,8 +1572,10 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown(f'<div class="chart-title-banner">{t["sec_hourly_staff"]} — {date_range_label}</div>', unsafe_allow_html=True)
 
+        sync_st = get_global_sync_state()
+        cur_v = sync_st.get("data_version", 0.0)
         with st.spinner("..."):
-            df_workers_raw = fetch_hourly_worker_data(stage_key, start_date, end_date)
+            df_workers_raw = fetch_hourly_worker_data(stage_key, start_date, end_date, cache_version=cur_v)
 
         df_workers = filter_by_customer(df_workers_raw, selected_cust_type, selected_cust_name)
 
@@ -1608,7 +1617,7 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
                     file_name=f"hourly_staff_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}.csv",
                     mime="text/csv",
                     use_container_width=True,
-                    key="btn_dl_hourly_staff"
+                    key=f"btn_dl_hourly_staff_{stage_key}"
                 )
         else:
             st.info(t["msg_no_hourly_data"])
@@ -2295,10 +2304,12 @@ def render_headcount_planning(cust_type: str, cust_name: str, start_date: dateti
     date_cols = [f"{dow_names[i]} {week_dates[i].strftime('%d/%m')}" for i in range(7)]
 
     # 2. TRUY VẤN DỮ LIỆU THỰC TẾ & BASELINE TỪ BIGQUERY
+    sync_st = get_global_sync_state()
+    cur_v = sync_st.get("data_version", 0.0)
     with st.spinner("..."):
         try:
-            weekly_actual = fetch_weekly_all_clients(start_str, end_str)
-            dow_baselines = fetch_dow_baselines()
+            weekly_actual = fetch_weekly_all_clients(start_str, end_str, cache_version=cur_v)
+            dow_baselines = fetch_dow_baselines(cache_version=cur_v)
         except Exception:
             weekly_actual = {}
             dow_baselines = {}
@@ -2671,8 +2682,10 @@ def render_pipeline_summary(cust_type: str, cust_name: str, start_date: datetime
 
     for s_name in stages_to_fetch:
         cfg_s = STAGE_CONFIGS[s_name]
+        sync_st = get_global_sync_state()
+        cur_v = sync_st.get("data_version", 0.0)
         try:
-            df_s = fetch_stage_data(s_name)
+            df_s = fetch_stage_data(s_name, cache_version=cur_v)
             df_s_filtered = filter_by_customer(df_s, cust_type, cust_name)
             df_s_range = filter_by_date_range(df_s_filtered, start_date, end_date)
             qty = df_s_range['total_qty'].sum() if not df_s_range.empty else 0.0
@@ -3131,6 +3144,78 @@ def render_inventory_dashboard(df_inventory: pd.DataFrame, cust_type: str, cust_
         )
 
 
+
+# ==========================================
+# FRAGMENT WRAPPERS (AUTO-REFRESH VỚI SCROLL PRESERVATION)
+# ==========================================
+@st.fragment(run_every="15s")
+def render_sidebar_sync_status_fragment(t):
+    sync_state = get_global_sync_state()
+    last_sync_time = get_latest_sync_timestamp()
+    if sync_state.get("error"):
+        sync_time_text = f"{t.get('sync_error', 'Lỗi đồng bộ:')} {sync_state['error'][:40]}"
+        badge_icon = "🔴"
+    elif sync_state.get("is_running"):
+        if last_sync_time:
+            sync_time_text = f"{t['sync_last_time']} {last_sync_time} ({t.get('sync_running', 'Đang đồng bộ...')})"
+        else:
+            sync_time_text = t['sync_running']
+        badge_icon = "🟡"
+    elif last_sync_time:
+        sync_time_text = f"{t['sync_last_time']} {last_sync_time}"
+        if sync_state.get("synced_count", 0) > 0:
+            sync_time_text += f" ({sync_state['synced_count']} {t['sync_new_files']})"
+        badge_icon = "🟢"
+    else:
+        sync_time_text = t['sync_init']
+        badge_icon = "🟢"
+
+    st.markdown(f"""
+    <div class="sync-status-box">
+        <div class="sync-status-badge">{badge_icon} {t['sync_auto_badge']}</div>
+        <div class="sync-status-time">{sync_time_text}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+@st.fragment(run_every="15s")
+def render_day_tab_fragment(stage_key, start_date, end_date, cur_cfg, selected_cust_type, selected_cust_name, t, lang):
+    sync_st = get_global_sync_state()
+    cur_v = sync_st.get("data_version", 0.0)
+    df_raw = fetch_stage_data(stage_key, cache_version=cur_v)
+    df_filtered = filter_by_customer(df_raw, selected_cust_type, selected_cust_name)
+    render_day_tab(df_filtered, start_date, end_date, cur_cfg, stage_key, selected_cust_type, selected_cust_name, t, lang)
+
+@st.fragment(run_every="30s")
+def render_week_tab_fragment(stage_key, cur_cfg, selected_cust_type, selected_cust_name, t, lang):
+    sync_st = get_global_sync_state()
+    cur_v = sync_st.get("data_version", 0.0)
+    df_raw = fetch_stage_data(stage_key, cache_version=cur_v)
+    df_filtered = filter_by_customer(df_raw, selected_cust_type, selected_cust_name)
+    render_week_tab(df_filtered, cur_cfg, t, lang)
+
+@st.fragment(run_every="30s")
+def render_month_tab_fragment(stage_key, cur_cfg, selected_cust_type, selected_cust_name, t, lang):
+    sync_st = get_global_sync_state()
+    cur_v = sync_st.get("data_version", 0.0)
+    df_raw = fetch_stage_data(stage_key, cache_version=cur_v)
+    df_filtered = filter_by_customer(df_raw, selected_cust_type, selected_cust_name)
+    render_month_tab(df_filtered, cur_cfg, t, lang)
+
+@st.fragment(run_every="15s")
+def render_inventory_fragment(selected_cust_type, selected_cust_name, start_date, end_date, t, lang):
+    sync_st = get_global_sync_state()
+    cur_v = sync_st.get("data_version", 0.0)
+    df_inv = fetch_inventory_data(cache_version=cur_v)
+    render_inventory_dashboard(df_inv, selected_cust_type, selected_cust_name, start_date, end_date, t, lang)
+
+@st.fragment(run_every="20s")
+def render_summary_fragment(selected_cust_type, selected_cust_name, start_date, end_date, t, lang):
+    render_pipeline_summary(selected_cust_type, selected_cust_name, start_date, end_date, t, lang)
+
+@st.fragment(run_every="30s")
+def render_planning_fragment(selected_cust_type, selected_cust_name, start_date, end_date, t, lang):
+    render_headcount_planning(selected_cust_type, selected_cust_name, start_date, end_date, t, lang)
+
 # ==========================================
 # MAIN APPLICATION CONTROLLER
 # ==========================================
@@ -3225,33 +3310,8 @@ def main():
             st.session_state.current_lang = new_lang
             st.rerun()
 
-        # 5. THÔNG TIN TRẠNG THÁI ĐỒNG BỘ TINH GỌN (SYNC STATUS)
-        sync_state = get_global_sync_state()
-        last_sync_time = get_latest_sync_timestamp()
-        if sync_state.get("error"):
-            sync_time_text = f"{t.get('sync_error', 'Lỗi đồng bộ:')} {sync_state['error'][:40]}"
-            badge_icon = "🔴"
-        elif sync_state.get("is_running"):
-            if last_sync_time:
-                sync_time_text = f"{t['sync_last_time']} {last_sync_time} ({t.get('sync_running', 'Đang đồng bộ...')})"
-            else:
-                sync_time_text = t['sync_running']
-            badge_icon = "🟡"
-        elif last_sync_time:
-            sync_time_text = f"{t['sync_last_time']} {last_sync_time}"
-            if sync_state.get("synced_count", 0) > 0:
-                sync_time_text += f" ({sync_state['synced_count']} {t['sync_new_files']})"
-            badge_icon = "🟢"
-        else:
-            sync_time_text = t['sync_init']
-            badge_icon = "🟢"
-
-        st.markdown(f"""
-        <div class="sync-status-box">
-            <div class="sync-status-badge">{badge_icon} {t['sync_auto_badge']}</div>
-            <div class="sync-status-time">{sync_time_text}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        # 5. THÔNG TIN TRẠNG THÁI ĐỒNG BỘ TINH GỌN (SYNC STATUS LIVE FRAGMENT)
+        render_sidebar_sync_status_fragment(t)
 
         # Footer
         st.markdown(f"""
@@ -3267,23 +3327,26 @@ def main():
     df_raw = pd.DataFrame()
     df_inventory = pd.DataFrame()
 
+    sync_st_main = get_global_sync_state()
+    cur_v_main = sync_st_main.get("data_version", 0.0)
+
     if cur_cfg.get("type") == "inventory":
         with st.spinner("..."):
             try:
-                df_inventory = fetch_inventory_data()
+                df_inventory = fetch_inventory_data(cache_version=cur_v_main)
             except Exception as ex:
                 st.error(str(ex))
                 return
     elif cur_cfg.get("type") not in ["summary", "backlog", "planning"]:
         with st.spinner("..."):
             try:
-                df_raw = fetch_stage_data(selected_key)
+                df_raw = fetch_stage_data(selected_key, cache_version=cur_v_main)
             except Exception as ex:
                 st.error(str(ex))
                 return
     elif cur_cfg.get("type") in ["summary", "planning"]:
         try:
-            df_raw = fetch_stage_data("ĐÓNG GÓI")
+            df_raw = fetch_stage_data("ĐÓNG GÓI", cache_version=cur_v_main)
         except Exception:
             df_raw = pd.DataFrame()
 
@@ -3373,11 +3436,11 @@ def main():
     # ĐIỀU HƯỚNG HIỂN THỊ NỘI DUNG THEO KHÂU
     # ==========================================
     if cur_cfg.get("type") in ["planning", "backlog"]:
-        render_headcount_planning(selected_cust_type, selected_cust_name, start_date, end_date, t, lang)
+        render_planning_fragment(selected_cust_type, selected_cust_name, start_date, end_date, t, lang)
     elif cur_cfg.get("type") == "summary":
-        render_pipeline_summary(selected_cust_type, selected_cust_name, start_date, end_date, t, lang)
+        render_summary_fragment(selected_cust_type, selected_cust_name, start_date, end_date, t, lang)
     elif cur_cfg.get("type") == "inventory":
-        render_inventory_dashboard(df_inventory, selected_cust_type, selected_cust_name, start_date, end_date, t, lang)
+        render_inventory_fragment(selected_cust_type, selected_cust_name, start_date, end_date, t, lang)
     else:
         tab_day, tab_week, tab_month = st.tabs([
             t['tab_day'],
@@ -3386,13 +3449,13 @@ def main():
         ])
 
         with tab_day:
-            render_day_tab(df_filtered, start_date, end_date, cur_cfg, selected_key, selected_cust_type, selected_cust_name, t, lang)
+            render_day_tab_fragment(selected_key, start_date, end_date, cur_cfg, selected_cust_type, selected_cust_name, t, lang)
 
         with tab_week:
-            render_week_tab(df_filtered, cur_cfg, t, lang)
+            render_week_tab_fragment(selected_key, cur_cfg, selected_cust_type, selected_cust_name, t, lang)
 
         with tab_month:
-            render_month_tab(df_filtered, cur_cfg, t, lang)
+            render_month_tab_fragment(selected_key, cur_cfg, selected_cust_type, selected_cust_name, t, lang)
 
 
 if __name__ == "__main__":

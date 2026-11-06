@@ -259,10 +259,8 @@ def select_files_to_scan(all_files: list, is_full_sync: bool) -> list:
             batch_files.append(f)
         else:
             ondemand_files.append(f)
-    selected = []
-    if ondemand_files:
-        latest = max(ondemand_files, key=lambda x: x["modifiedTime"])
-        selected.append(latest)
+    # Tất cả file on-demand đều là ứng viên quét; processed_map sẽ bỏ qua file không đổi
+    selected = list(ondemand_files)
     boundary = get_period_boundary()
     for f in batch_files:
         if is_full_sync or f["_end"] >= boundary:
