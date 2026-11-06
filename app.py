@@ -868,23 +868,31 @@ st.markdown("""
         transform: scale(0.98) !important;
     }
 
-    /* SIDEBAR REDESIGN & MODERN ANIMATIONS */
-    section[data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #090d16 0%, #0f172a 100%) !important;
-        border-right: 1px solid rgba(51, 65, 85, 0.45) !important;
-        box-shadow: 4px 0 24px rgba(0, 0, 0, 0.35);
+    /* ========================================================
+       SIDEBAR & MAIN THEME: SEAMLESS HARMONIOUS PALETTE & ANIMATED NAV
+       ======================================================== */
+    .stApp {
+        background-color: #0b1120 !important;
+        color: #f1f5f9;
     }
     
+    section[data-testid="stSidebar"] {
+        background-color: #0d1527 !important;
+        background-image: linear-gradient(180deg, #0d1527 0%, #090e1a 100%) !important;
+        border-right: 1px solid rgba(51, 65, 85, 0.35) !important;
+        box-shadow: 4px 0 24px rgba(0, 0, 0, 0.25);
+    }
+
     .sidebar-brand-container {
-        padding: 8px 4px 14px 4px;
-        border-bottom: 1px solid rgba(51, 65, 85, 0.55);
+        padding: 6px 4px 12px 4px;
+        border-bottom: 1px solid rgba(51, 65, 85, 0.4);
         margin-bottom: 12px;
     }
     .sidebar-brand-top {
         display: flex;
         align-items: center;
         gap: 12px;
-        margin-bottom: 10px;
+        margin-bottom: 8px;
     }
     .sidebar-logo-img {
         width: 36px;
@@ -902,7 +910,7 @@ st.markdown("""
         flex-direction: column;
     }
     .brand-title {
-        font-size: 20px;
+        font-size: 19px;
         font-weight: 800;
         background: linear-gradient(135deg, #ffffff 0%, #e2e8f0 40%, #38bdf8 100%);
         -webkit-background-clip: text;
@@ -937,7 +945,7 @@ st.markdown("""
         text-transform: uppercase;
     }
     .sidebar-section-title {
-        color: #cbd5e1;
+        color: #94a3b8;
         font-size: 11px;
         font-weight: 700;
         letter-spacing: 0.8px;
@@ -947,60 +955,101 @@ st.markdown("""
     }
     .sidebar-divider {
         height: 1px;
-        background: linear-gradient(90deg, transparent, rgba(51, 65, 85, 0.8) 50%, transparent);
-        margin: 16px 0;
+        background: linear-gradient(90deg, transparent, rgba(51, 65, 85, 0.6) 50%, transparent);
+        margin: 14px 0;
     }
 
     /* Warehouse Selectbox styling */
     div[data-testid="stSidebar"] div[data-testid="stSelectbox"] div[data-baseweb="select"] {
         border-radius: 8px !important;
-        background-color: #1e293b !important;
-        border: 1px solid rgba(71, 85, 105, 0.6) !important;
+        background-color: #152238 !important;
+        border: 1px solid rgba(51, 65, 85, 0.6) !important;
         transition: all 0.25s ease !important;
     }
     div[data-testid="stSidebar"] div[data-testid="stSelectbox"] div[data-baseweb="select"]:hover {
         border-color: #38bdf8 !important;
         box-shadow: 0 0 10px rgba(56, 189, 248, 0.25) !important;
     }
-
-    /* Option Menu Nav Tabs Animated Styling */
-    div[data-testid="stSidebar"] .nav-link {
-        font-size: 13px !important;
-        text-align: left !important;
-        margin: 4px 0px !important;
-        padding: 10px 16px !important;
+    div[data-testid="stSidebar"] div[data-testid="stSelectbox"] div[data-baseweb="select"] * {
+        color: #f1f5f9 !important;
         font-weight: 600 !important;
+        font-size: 13px !important;
+    }
+
+    /* NATIVE SIDEBAR BUTTONS: SMOOTH ANIMATIONS & HOVER */
+    section[data-testid="stSidebar"] div.stButton {
+        margin-bottom: 2px !important;
+    }
+
+    /* INACTIVE BUTTON */
+    section[data-testid="stSidebar"] div.stButton > button[kind="secondary"],
+    section[data-testid="stSidebar"] div.stButton > button:not([kind="primary"]) {
+        background: rgba(21, 34, 56, 0.45) !important;
         color: #94a3b8 !important;
-        border-radius: 12px !important;
-        background-color: transparent !important;
+        border: 1px solid rgba(51, 65, 85, 0.3) !important;
         border-left: 3px solid transparent !important;
+        border-radius: 10px !important;
+        text-align: left !important;
+        justify-content: flex-start !important;
+        padding: 9px 14px !important;
+        font-size: 13px !important;
+        font-weight: 600 !important;
+        letter-spacing: 0.3px !important;
         transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
-        position: relative !important;
+        box-shadow: none !important;
+        width: 100% !important;
+        display: flex !important;
+        align-items: center !important;
     }
-    div[data-testid="stSidebar"] .nav-link:hover {
-        background: rgba(30, 41, 59, 0.85) !important;
-        color: #f8fafc !important;
-        transform: translateX(5px) !important;
-        border-left: 3px solid rgba(56, 189, 248, 0.75) !important;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25) !important;
+
+    /* HOVER ANIMATION FOR INACTIVE BUTTON */
+    section[data-testid="stSidebar"] div.stButton > button[kind="secondary"]:hover,
+    section[data-testid="stSidebar"] div.stButton > button:not([kind="primary"]):hover {
+        background: rgba(30, 41, 59, 0.95) !important;
+        color: #ffffff !important;
+        border-color: rgba(56, 189, 248, 0.45) !important;
+        border-left: 4px solid #38bdf8 !important;
+        transform: translateX(6px) !important;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3), 0 0 10px rgba(56, 189, 248, 0.25) !important;
     }
-    div[data-testid="stSidebar"] .nav-link:active {
-        transform: scale(0.97) translateX(3px) !important;
-    }
-    div[data-testid="stSidebar"] .nav-link-selected {
+
+    /* ACTIVE BUTTON */
+    section[data-testid="stSidebar"] div.stButton > button[kind="primary"] {
         background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%) !important;
         color: #ffffff !important;
-        font-weight: 700 !important;
-        border-radius: 12px !important;
+        border: 1px solid #3b82f6 !important;
         border-left: 4px solid #67e8f9 !important;
-        box-shadow: 0 4px 16px rgba(37, 99, 235, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.2) !important;
+        border-radius: 10px !important;
+        text-align: left !important;
+        justify-content: flex-start !important;
+        padding: 9px 14px !important;
+        font-size: 13px !important;
+        font-weight: 700 !important;
+        letter-spacing: 0.4px !important;
         transform: translateX(4px) !important;
-        animation: selectedTabPulse 3s infinite alternate ease-in-out;
+        box-shadow: 0 4px 18px rgba(37, 99, 235, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.25) !important;
+        animation: activeNavPulse 3s infinite alternate ease-in-out !important;
+        width: 100% !important;
+        display: flex !important;
+        align-items: center !important;
     }
-    @keyframes selectedTabPulse {
-        0% { box-shadow: 0 4px 16px rgba(37, 99, 235, 0.5), 0 0 6px rgba(103, 232, 249, 0.3); }
-        100% { box-shadow: 0 4px 20px rgba(37, 99, 235, 0.65), 0 0 12px rgba(103, 232, 249, 0.55); }
+
+    @keyframes activeNavPulse {
+        0% { box-shadow: 0 4px 16px rgba(37, 99, 235, 0.45), 0 0 8px rgba(103, 232, 249, 0.3); }
+        100% { box-shadow: 0 4px 22px rgba(37, 99, 235, 0.7), 0 0 16px rgba(103, 232, 249, 0.6); }
     }
+
+    section[data-testid="stSidebar"] div.stButton > button[kind="primary"]:hover {
+        transform: translateX(6px) !important;
+        box-shadow: 0 6px 22px rgba(37, 99, 235, 0.65), 0 0 14px rgba(103, 232, 249, 0.5) !important;
+    }
+
+    /* CLICK PRESS TACTILE FEEDBACK */
+    section[data-testid="stSidebar"] div.stButton > button:active {
+        transform: scale(0.97) translateX(3px) !important;
+        transition: transform 0.08s ease !important;
+    }
+
 
     /* Header Box */
     .header-box {
@@ -3512,48 +3561,20 @@ def main():
 
         st.markdown(f'<div class="sidebar-section-title">{t["stages_header"]}</div>', unsafe_allow_html=True)
 
-        # Looker Studio Style Navigation Buttons (Tên khâu viết in hoa, KHÔNG ICON)
-        stage_options = [STAGE_CONFIGS[k][f'name_{lang.lower()}'].upper() for k in STAGE_KEYS]
-        
         if "selected_stage_idx" not in st.session_state:
-            st.session_state.selected_stage_idx = 0  # Mặc định là khâu "TỔNG HỢP" (Index 0)
+            st.session_state.selected_stage_idx = 0
 
-        selected_nav = option_menu(
-            menu_title=None,
-            options=stage_options,
-            default_index=st.session_state.selected_stage_idx,
-            key=f"nav_pills_v2_{lang}",
-            styles={
-                "container": {
-                    "padding": "0!important",
-                    "background-color": "transparent"
-                },
-                "nav-link": {
-                    "font-size": "13px",
-                    "text-align": "left",
-                    "margin": "4px 0px",
-                    "padding": "10px 16px",
-                    "font-weight": "600",
-                    "color": "#94a3b8",
-                    "border-radius": "10px",
-                    "background-color": "rgba(30, 41, 59, 0.45)",
-                    "border-left": "3px solid transparent",
-                    "transition": "all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1)",
-                    "--hover-color": "#334155",
-                },
-                "nav-link-selected": {
-                    "background-color": "#2563eb",
-                    "color": "#ffffff",
-                    "font-weight": "700",
-                    "border-radius": "10px",
-                    "border-left": "4px solid #38bdf8",
-                    "box-shadow": "0 4px 16px rgba(37, 99, 235, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.2)",
-                },
-            }
-        )
-
-        if selected_nav and selected_nav in stage_options:
-            st.session_state.selected_stage_idx = stage_options.index(selected_nav)
+        # Looker Studio Style Animated Navigation Buttons (Native Streamlit)
+        for idx, key in enumerate(STAGE_KEYS):
+            stage_name = STAGE_CONFIGS[key][f"name_{lang.lower()}"].upper()
+            is_active = (st.session_state.selected_stage_idx == idx)
+            btn_kind = "primary" if is_active else "secondary"
+            btn_prefix = "›" if not is_active else "▶"
+            
+            if st.button(f"{btn_prefix}  {stage_name}", key=f"nav_btn_{key}_{lang}", use_container_width=True, type=btn_kind):
+                if st.session_state.selected_stage_idx != idx:
+                    st.session_state.selected_stage_idx = idx
+                    st.rerun()
 
         selected_key = STAGE_KEYS[st.session_state.selected_stage_idx]
         cur_cfg = STAGE_CONFIGS[selected_key]
