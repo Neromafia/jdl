@@ -20,6 +20,12 @@ from googleapiclient.http import MediaIoBaseDownload
 from google.cloud import bigquery
 
 warnings.filterwarnings("ignore")
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 # ══════════════════════════════════════════════════════════════
 # CONFIG
@@ -342,7 +348,12 @@ def sync_folder(cfg, drive_svc, bq_client, processed_map, is_full_sync, dry_run,
             print(f"  ❌ Lỗi liệt kê file: {e}")
             return 0, 0
 
-    candidates = select_files_to_scan(all_files, is_full_sync)
+    if folder_name == "BACKLOG":
+        # BACKLOG là dữ liệu Snapshot tồn đọng thời gian thực.
+        # Luôn chỉ chọn DUY NHẤT 1 file có modifiedTime mới nhất trên Drive.
+        candidates = [max(all_files, key=lambda f: f.get("modifiedTime", ""))] if all_files else []
+    else:
+        candidates = select_files_to_scan(all_files, is_full_sync)
 
     synced, skipped = 0, 0
     for file_meta in candidates:
@@ -471,7 +482,23 @@ def sync_folder(cfg, drive_svc, bq_client, processed_map, is_full_sync, dry_run,
             WHEN NOT MATCHED THEN
               INSERT ({insert_cols}) VALUES ({insert_vals})
             """
-            bq_client.query(merge_sql).result()
+            if folder_name == "BACKLOG":
+                # Đối với BACKLOG: Truncate bảng fact_backlog và nạp danh sách đơn mới nhất
+                # để snapshot luôn sạch và loại bỏ các đơn cũ đã được hoàn thành.
+                bq_client.query(f"TRUNCATE TABLE `{PROJECT_ID}.{DATASET_ID}.{cfg['fact_table']}`").result()
+                insert_sql = f"""
+                INSERT INTO `{PROJECT_ID}.{DATASET_ID}.{cfg['fact_table']}` ({insert_cols})
+                SELECT {insert_vals}
+                FROM `{stg_ref}` S
+                WHERE `{time_col}` IS NOT NULL
+                QUALIFY ROW_NUMBER() OVER (
+                  PARTITION BY {pk_partition}
+                  ORDER BY CAST(`{time_col}` AS TIMESTAMP) DESC
+                ) = 1
+                """
+                bq_client.query(insert_sql).result()
+            else:
+                bq_client.query(merge_sql).result()
 
             log_sql = f"""
             MERGE `{LOG_TABLE}` L
