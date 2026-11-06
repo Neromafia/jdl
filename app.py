@@ -1086,19 +1086,63 @@ st.markdown("""
     .badge-success { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid #059669; }
     .badge-purple { background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid #7e22ce; }
 
+    /* ========================================================
+       LIVE KPI ODOMETER / SUBSCRIBER COUNT TICKER EFFECT
+       ======================================================== */
+    @keyframes odometerSlideIn {
+        0% {
+            opacity: 0.2;
+            transform: translateY(20px) scale(0.93);
+            filter: blur(2.5px);
+            text-shadow: 0 0 20px rgba(56, 189, 248, 0.95), 0 0 35px rgba(37, 99, 235, 0.7);
+        }
+        45% {
+            opacity: 1;
+            transform: translateY(-4px) scale(1.04);
+            filter: blur(0.5px);
+            text-shadow: 0 0 14px rgba(56, 189, 248, 0.75);
+        }
+        75% {
+            transform: translateY(1.5px) scale(0.99);
+            filter: blur(0);
+        }
+        100% {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+            filter: blur(0);
+            text-shadow: none;
+        }
+    }
+
+    @keyframes cardLivePulse {
+        0% {
+            border-color: rgba(56, 189, 248, 0.9);
+            box-shadow: 0 0 22px rgba(56, 189, 248, 0.38), inset 0 0 10px rgba(56, 189, 248, 0.15);
+            transform: translateY(-2px);
+        }
+        100% {
+            border-color: #334155;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+            transform: translateY(0);
+        }
+    }
+
     /* KPI Cards */
     .kpi-card {
-        background: #1e293b;
+        background: #152238;
         border: 1px solid #334155;
         border-radius: 12px;
         padding: 16px 18px;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
         transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s ease, box-shadow 0.25s ease;
+        animation: cardLivePulse 0.95s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        position: relative;
+        overflow: hidden;
     }
     .kpi-card:hover {
         transform: translateY(-2px);
-        border-color: #3b82f6;
-        box-shadow: 0 8px 16px -2px rgba(0, 0, 0, 0.35);
+        border-color: #38bdf8;
+        box-shadow: 0 8px 20px -2px rgba(0, 0, 0, 0.35), 0 0 12px rgba(56, 189, 248, 0.2);
     }
     .kpi-label {
         font-size: 11px;
@@ -1114,6 +1158,25 @@ st.markdown("""
         color: #f8fafc;
         line-height: 1.2;
         margin-bottom: 4px;
+        display: inline-block;
+        animation: odometerSlideIn 0.85s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        font-variant-numeric: tabular-nums;
+        will-change: transform, opacity;
+    }
+    
+    .warehouse-inline-badge {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        white-space: nowrap;
+        padding: 4px 0;
+    }
+    .warehouse-inline-label {
+        font-size: 11.5px;
+        font-weight: 700;
+        color: #94a3b8;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
     }
     .kpi-delta {
         font-size: 12px;
@@ -3540,24 +3603,30 @@ def main():
                     <div class="brand-title">{t['brand_title']}</div>
                 </div>
             </div>
-            <div class="warehouse-badge-row">
-                <span class="wh-status-dot"></span>
-                <span class="warehouse-select-label">{t['lbl_select_warehouse']}</span>
-            </div>
         </div>
         """, unsafe_allow_html=True)
 
-        warehouse_options = ["SGN-SM-1-VN"]
-        if "selected_warehouse" not in st.session_state:
-            st.session_state.selected_warehouse = "SGN-SM-1-VN"
+        # Dropdown chọn kho cùng hàng với text KHO VẬN HÀNH
+        col_wh_txt, col_wh_drop = st.columns([1.1, 1.4], gap="small", vertical_alignment="center")
+        with col_wh_txt:
+            st.markdown(f"""
+            <div class="warehouse-inline-badge">
+                <span class="wh-status-dot"></span>
+                <span class="warehouse-inline-label">{t['lbl_select_warehouse']}</span>
+            </div>
+            """, unsafe_allow_html=True)
+        with col_wh_drop:
+            warehouse_options = ["SGN-SM-1-VN"]
+            if "selected_warehouse" not in st.session_state:
+                st.session_state.selected_warehouse = "SGN-SM-1-VN"
 
-        selected_wh = st.selectbox(
-            label=t["lbl_select_warehouse"],
-            options=warehouse_options,
-            index=0,
-            key="warehouse_selector",
-            label_visibility="collapsed"
-        )
+            selected_wh = st.selectbox(
+                label=t["lbl_select_warehouse"],
+                options=warehouse_options,
+                index=0,
+                key="warehouse_selector",
+                label_visibility="collapsed"
+            )
 
         st.markdown(f'<div class="sidebar-section-title">{t["stages_header"]}</div>', unsafe_allow_html=True)
 
@@ -3749,6 +3818,77 @@ def main():
         with tab_month:
             render_month_tab_fragment(selected_key, cur_cfg, selected_cust_type, selected_cust_name, t, lang)
 
+
+
+    # JavaScript Live Ticker / Odometer Engine for KPI Numbers
+    import streamlit.components.v1 as components
+    components.html(r"""
+    <script>
+    (function() {
+        try {
+            const pdoc = window.parent.document;
+            if (!pdoc) return;
+            
+            function animateNumber(elem, startNum, endNum, prefix, suffix, duration) {
+                let startTimestamp = null;
+                const isDecimal = String(endNum).includes('.');
+                const decimals = isDecimal ? (String(endNum).split('.')[1] || '').length : 0;
+                
+                function step(timestamp) {
+                    if (!startTimestamp) startTimestamp = timestamp;
+                    const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+                    const ease = 1 - Math.pow(1 - progress, 4);
+                    const current = startNum + (endNum - startNum) * ease;
+                    
+                    let formatted = isDecimal ? current.toFixed(decimals) : Math.floor(current).toLocaleString('en-US');
+                    elem.innerText = prefix + formatted + suffix;
+                    
+                    if (progress < 1) {
+                        requestAnimationFrame(step);
+                    } else {
+                        let finalFormatted = isDecimal ? endNum.toFixed(decimals) : endNum.toLocaleString('en-US');
+                        elem.innerText = prefix + finalFormatted + suffix;
+                    }
+                }
+                requestAnimationFrame(step);
+            }
+
+            function setupTickers() {
+                const elems = pdoc.querySelectorAll('.kpi-value');
+                elems.forEach(el => {
+                    const currentText = el.innerText.trim();
+                    if (!currentText) return;
+                    
+                    const prevText = el.getAttribute('data-prev-val');
+                    if (prevText === currentText) return;
+                    el.setAttribute('data-prev-val', currentText);
+                    
+                    el.style.animation = 'none';
+                    el.offsetHeight;
+                    el.style.animation = 'odometerSlideIn 0.85s cubic-bezier(0.16, 1, 0.3, 1) forwards';
+                    
+                    const match = currentText.match(/^([^\d]*)([\d,]+(?:\.\d+)?)([\s\S]*)$/);
+                    if (match) {
+                        const prefix = match[1];
+                        const numStr = match[2].replace(/,/g, '');
+                        const suffix = match[3];
+                        const targetNum = parseFloat(numStr);
+                        
+                        if (!isNaN(targetNum) && targetNum > 0) {
+                            const startNum = Math.max(0, Math.floor(targetNum * 0.85));
+                            animateNumber(el, startNum, targetNum, prefix, suffix, 850);
+                        }
+                    }
+                });
+            }
+
+            setupTickers();
+            const obs = new MutationObserver(() => setupTickers());
+            obs.observe(pdoc.body, { childList: true, subtree: true, characterData: true });
+        } catch(e) {}
+    })();
+    </script>
+    """, height=0, width=0)
 
 if __name__ == "__main__":
     main()
