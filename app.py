@@ -17,7 +17,8 @@ from google.oauth2 import service_account
 # CẤU HÌNH TRANG STREAMLIT (Lệnh Streamlit đầu tiên)
 # ==========================================
 st.set_page_config(
-    page_title="WMS Operations Dashboard",
+    page_title="JingDong Logistics Dashboard",
+    page_icon="favicon.png" if os.path.exists("favicon.png") else ("favicon.ico" if os.path.exists("favicon.ico") else None),
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -25,6 +26,18 @@ st.set_page_config(
 # ==========================================
 # HẰNG SỐ DỰ ÁN & QUY TẮC PHÂN LOẠI
 # ==========================================
+import base64
+
+def get_logo_base64() -> str:
+    for path in ["favicon.png", "favicon.ico"]:
+        if os.path.exists(path):
+            try:
+                with open(path, "rb") as f:
+                    return base64.b64encode(f.read()).decode("utf-8")
+            except Exception:
+                pass
+    return ""
+
 PROJECT_ID = "jingdong-505914"
 DATASET_ID = "wms_data"
 CREDENTIALS_FILE = "service_account.json"
@@ -233,9 +246,9 @@ B2B_GROUPS = ["CHINT", "KKV", "ENVISION"]
 # ==========================================
 TRANSLATIONS = {
     "VN": {
-        "app_title": "Bảng Điều hành Vận hành Kho Vận",
-        "brand_title": "KHO VẬN JDL",
-        "brand_sub": "Trung tâm Điều phối & Giám sát Tác nghiệp",
+        "app_title": "Bảng Điều hành Vận hành Kho Vận - JingDong Logistics",
+        "brand_title": "JingDong Logistics",
+        "lbl_select_warehouse": "Kho vận hành:",
         "stages_header": "CÁC KHÂU VẬN HÀNH",
         "date_range_header": "KHOẢNG THỜI GIAN ĐỐI SOÁT",
         "date_range_label": "Chọn khoảng thời gian (Từ ngày - Đến ngày):",
@@ -419,7 +432,7 @@ TRANSLATIONS = {
         "inv_btn_download_daily": "Tải bảng kiểm kê theo ngày (.csv)",
         "inv_btn_download_cust": "Tải bảng đối soát khách hàng (.csv)",
         "inv_btn_download_tasks": "Tải nhật ký nhiệm vụ (.csv)",
-        "developed_by": "Phát triển bởi bộ phận kiểm soát chất lượng",
+        "developed_by": "Phát triển bởi bộ phận QC",
         # Packing Backlog integration
         "card_backlog_label": "TỒN ĐỌNG (BACKLOG)",
         "unit_order": "Đơn",
@@ -437,9 +450,9 @@ TRANSLATIONS = {
         "msg_no_backlog": "Hiện không có đơn hàng tồn đọng backlog."
     },
     "ZH": {
-        "app_title": "仓储管理运营监控看板",
-        "brand_title": "京东物流仓储",
-        "brand_sub": "仓储作业运营调度中心",
+        "app_title": "仓储管理运营监控看板 - 京东物流",
+        "brand_title": "JingDong Logistics",
+        "lbl_select_warehouse": "运营仓库：",
         "stages_header": "仓储作业环节",
         "date_range_header": "对账统计周期",
         "date_range_label": "选择统计区间（起始日期 - 截止日期）：",
@@ -623,7 +636,7 @@ TRANSLATIONS = {
         "inv_btn_download_daily": "导出每日盘点报表 (.csv)",
         "inv_btn_download_cust": "导出客户对账报表 (.csv)",
         "inv_btn_download_tasks": "导出任务明细报表 (.csv)",
-        "developed_by": "由质量控制部开发",
+        "developed_by": "由QC质量控制部开发",
         # Packing Backlog integration
         "card_backlog_label": "出库待打包积压 (BACKLOG)",
         "unit_order": "单",
@@ -855,29 +868,138 @@ st.markdown("""
         transform: scale(0.98) !important;
     }
 
+    /* SIDEBAR REDESIGN & MODERN ANIMATIONS */
     section[data-testid="stSidebar"] {
-        background: #0f172a;
-        border-right: 1px solid #1e293b;
+        background: linear-gradient(180deg, #090d16 0%, #0f172a 100%) !important;
+        border-right: 1px solid rgba(51, 65, 85, 0.45) !important;
+        box-shadow: 4px 0 24px rgba(0, 0, 0, 0.35);
     }
     
-    .sidebar-brand {
-        padding: 6px 4px 16px 4px;
-        border-bottom: 1px solid #334155;
-        margin-bottom: 16px;
+    .sidebar-brand-container {
+        padding: 8px 4px 14px 4px;
+        border-bottom: 1px solid rgba(51, 65, 85, 0.55);
+        margin-bottom: 12px;
+    }
+    .sidebar-brand-top {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 10px;
+    }
+    .sidebar-logo-img {
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4), 0 0 10px rgba(56, 189, 248, 0.3);
+        transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.35s ease;
+    }
+    .sidebar-logo-img:hover {
+        transform: scale(1.1) rotate(3deg);
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5), 0 0 18px rgba(56, 189, 248, 0.55);
+    }
+    .sidebar-brand-text {
+        display: flex;
+        flex-direction: column;
     }
     .brand-title {
-        font-size: 19px;
+        font-size: 20px;
         font-weight: 800;
-        background: linear-gradient(90deg, #60a5fa, #38bdf8);
+        background: linear-gradient(135deg, #ffffff 0%, #e2e8f0 40%, #38bdf8 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         letter-spacing: 0.5px;
+        line-height: 1.2;
     }
-    .brand-sub {
-        font-size: 11.5px;
+    .warehouse-badge-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 4px;
+    }
+    .wh-status-dot {
+        width: 7px;
+        height: 7px;
+        background-color: #10b981;
+        border-radius: 50%;
+        display: inline-block;
+        box-shadow: 0 0 8px #10b981;
+        animation: pulseGreenDot 2s infinite ease-in-out;
+    }
+    @keyframes pulseGreenDot {
+        0%, 100% { transform: scale(1); opacity: 1; box-shadow: 0 0 6px #10b981; }
+        50% { transform: scale(1.35); opacity: 0.7; box-shadow: 0 0 14px #34d399; }
+    }
+    .warehouse-select-label {
+        font-size: 11px;
+        font-weight: 700;
         color: #94a3b8;
-        font-weight: 500;
-        margin-top: 2px;
+        letter-spacing: 0.6px;
+        text-transform: uppercase;
+    }
+    .sidebar-section-title {
+        color: #cbd5e1;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.8px;
+        text-transform: uppercase;
+        margin-top: 14px;
+        margin-bottom: 8px;
+    }
+    .sidebar-divider {
+        height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(51, 65, 85, 0.8) 50%, transparent);
+        margin: 16px 0;
+    }
+
+    /* Warehouse Selectbox styling */
+    div[data-testid="stSidebar"] div[data-testid="stSelectbox"] div[data-baseweb="select"] {
+        border-radius: 8px !important;
+        background-color: #1e293b !important;
+        border: 1px solid rgba(71, 85, 105, 0.6) !important;
+        transition: all 0.25s ease !important;
+    }
+    div[data-testid="stSidebar"] div[data-testid="stSelectbox"] div[data-baseweb="select"]:hover {
+        border-color: #38bdf8 !important;
+        box-shadow: 0 0 10px rgba(56, 189, 248, 0.25) !important;
+    }
+
+    /* Option Menu Nav Tabs Animated Styling */
+    div[data-testid="stSidebar"] .nav-link {
+        font-size: 13px !important;
+        text-align: left !important;
+        margin: 4px 0px !important;
+        padding: 10px 16px !important;
+        font-weight: 600 !important;
+        color: #94a3b8 !important;
+        border-radius: 12px !important;
+        background-color: transparent !important;
+        border-left: 3px solid transparent !important;
+        transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
+        position: relative !important;
+    }
+    div[data-testid="stSidebar"] .nav-link:hover {
+        background: rgba(30, 41, 59, 0.85) !important;
+        color: #f8fafc !important;
+        transform: translateX(5px) !important;
+        border-left: 3px solid rgba(56, 189, 248, 0.75) !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25) !important;
+    }
+    div[data-testid="stSidebar"] .nav-link:active {
+        transform: scale(0.97) translateX(3px) !important;
+    }
+    div[data-testid="stSidebar"] .nav-link-selected {
+        background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%) !important;
+        color: #ffffff !important;
+        font-weight: 700 !important;
+        border-radius: 12px !important;
+        border-left: 4px solid #67e8f9 !important;
+        box-shadow: 0 4px 16px rgba(37, 99, 235, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.2) !important;
+        transform: translateX(4px) !important;
+        animation: selectedTabPulse 3s infinite alternate ease-in-out;
+    }
+    @keyframes selectedTabPulse {
+        0% { box-shadow: 0 4px 16px rgba(37, 99, 235, 0.5), 0 0 6px rgba(103, 232, 249, 0.3); }
+        100% { box-shadow: 0 4px 20px rgba(37, 99, 235, 0.65), 0 0 12px rgba(103, 232, 249, 0.55); }
     }
 
     /* Header Box */
@@ -3358,14 +3480,37 @@ def main():
     # SIDEBAR: LOOKER STUDIO NAV PILLS (KHÔNG ICON) & FILTERS
     # ==========================================
     with st.sidebar:
+        logo_b64 = get_logo_base64()
+        logo_html = f'<img src="data:image/png;base64,{logo_b64}" class="sidebar-logo-img" alt="JDL"/>' if logo_b64 else ''
+
         st.markdown(f"""
-        <div class="sidebar-brand">
-            <div class="brand-title">{t['brand_title']}</div>
-            <div class="brand-sub">{t['brand_sub']}</div>
+        <div class="sidebar-brand-container">
+            <div class="sidebar-brand-top">
+                {logo_html}
+                <div class="sidebar-brand-text">
+                    <div class="brand-title">{t['brand_title']}</div>
+                </div>
+            </div>
+            <div class="warehouse-badge-row">
+                <span class="wh-status-dot"></span>
+                <span class="warehouse-select-label">{t['lbl_select_warehouse']}</span>
+            </div>
         </div>
         """, unsafe_allow_html=True)
 
-        st.markdown(f"##### {t['stages_header']}")
+        warehouse_options = ["SGN-SM-1-VN"]
+        if "selected_warehouse" not in st.session_state:
+            st.session_state.selected_warehouse = "SGN-SM-1-VN"
+
+        selected_wh = st.selectbox(
+            label=t["lbl_select_warehouse"],
+            options=warehouse_options,
+            index=0,
+            key="warehouse_selector",
+            label_visibility="collapsed"
+        )
+
+        st.markdown(f'<div class="sidebar-section-title">{t["stages_header"]}</div>', unsafe_allow_html=True)
 
         # Looker Studio Style Navigation Buttons (Tên khâu viết in hoa, KHÔNG ICON)
         stage_options = [STAGE_CONFIGS[k][f'name_{lang.lower()}'].upper() for k in STAGE_KEYS]
@@ -3411,7 +3556,7 @@ def main():
         selected_key = STAGE_KEYS[st.session_state.selected_stage_idx]
         cur_cfg = STAGE_CONFIGS[selected_key]
 
-        st.markdown("---")
+        st.markdown('<div class="sidebar-divider"></div>', unsafe_allow_html=True)
 
         # 4. LANGUAGE SWITCHER VI - CN (CĂN GIỮA HOÀN TOÀN)
         st.markdown(f'<div class="lang-center-title">{t["lang_header"]}</div>', unsafe_allow_html=True)
