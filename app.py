@@ -3522,7 +3522,7 @@ def main():
             menu_title=None,
             options=stage_options,
             default_index=st.session_state.selected_stage_idx,
-            key=f"nav_pills_noicon_{lang}",
+            key=f"nav_pills_v2_{lang}",
             styles={
                 "container": {
                     "padding": "0!important",
@@ -3531,21 +3531,23 @@ def main():
                 "nav-link": {
                     "font-size": "13px",
                     "text-align": "left",
-                    "margin": "3px 0px",
-                    "padding": "9px 16px",
+                    "margin": "4px 0px",
+                    "padding": "10px 16px",
                     "font-weight": "600",
                     "color": "#94a3b8",
-                    "border-radius": "24px",
-                    "background-color": "transparent",
-                    "transition": "all 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
-                    "--hover-color": "#1e293b",
+                    "border-radius": "10px",
+                    "background-color": "rgba(30, 41, 59, 0.45)",
+                    "border-left": "3px solid transparent",
+                    "transition": "all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1)",
+                    "--hover-color": "#334155",
                 },
                 "nav-link-selected": {
                     "background-color": "#2563eb",
                     "color": "#ffffff",
                     "font-weight": "700",
-                    "border-radius": "24px",
-                    "box-shadow": "0 4px 12px rgba(37, 99, 235, 0.4)",
+                    "border-radius": "10px",
+                    "border-left": "4px solid #38bdf8",
+                    "box-shadow": "0 4px 16px rgba(37, 99, 235, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.2)",
                 },
             }
         )
