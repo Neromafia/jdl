@@ -141,6 +141,27 @@ def get_global_sync_state():
         "error": None
     }
 
+
+def get_latest_sync_timestamp():
+    """Lấy mốc thời gian đồng bộ gần nhất, tự động truy vấn BigQuery nếu state chưa có."""
+    sync_state = get_global_sync_state()
+    if sync_state.get("last_sync"):
+        return sync_state["last_sync"]
+    try:
+        client, _ = get_bigquery_client()
+        if client:
+            sql = f"SELECT MAX(synced_at) as last_synced FROM `{PROJECT_ID}.{DATASET_ID}.sync_file_logs`"
+            df_log = client.query(sql).to_dataframe()
+            if not df_log.empty and pd.notnull(df_log.iloc[0]['last_synced']):
+                t_utc = df_log.iloc[0]['last_synced']
+                t_vn = t_utc.tz_convert(VN_TZ) if hasattr(t_utc, "tz_convert") else t_utc + timedelta(hours=7)
+                ts = t_vn.strftime("%H:%M:%S %d/%m/%Y")
+                sync_state["last_sync"] = ts
+                return ts
+    except Exception:
+        pass
+    return None
+
 SYNC_LOCK = threading.Lock()
 
 def background_sync_worker():
@@ -351,6 +372,46 @@ TRANSLATIONS = {
         "sync_init": "Đang khởi động đồng bộ ngầm...",
         "sync_new_files": "file mới",
         "sync_error": "Lỗi đồng bộ:",
+        # Inventory tab translations
+        "inv_title": "BÁO CÁO KIỂM KÊ & ĐỐI SOÁT TỒN KHO",
+        "inv_metric_tasks": "NHIỆM VỤ KIỂM KÊ",
+        "inv_metric_skus": "SỐ MÃ HÀNG (SKU)",
+        "inv_metric_system_qty": "TỔNG SL HỆ THỐNG",
+        "inv_metric_actual_qty": "TỔNG SL THỰC TẾ",
+        "inv_metric_diff_qty": "CHÊNH LỆCH PCS",
+        "inv_metric_accuracy": "ĐỘ CHÍNH XÁC KIỂM KÊ",
+        "inv_sub_tasks": "Số nhiệm vụ đã thực hiện",
+        "inv_sub_skus": "Số mã SKU phát sinh kiểm kê",
+        "inv_sub_sys": "Tồn kho sổ sách WMS",
+        "inv_sub_act": "Sản lượng đếm thực tế",
+        "inv_sub_diff": "Chênh lệch giữa System & Actual",
+        "inv_tab_daily": "Theo Ngày (Tiến độ & Chênh lệch)",
+        "inv_tab_customer": "Theo Khách hàng (Đối soát chi tiết)",
+        "inv_tab_tasks": "Nhật ký nhiệm vụ kiểm kê",
+        "inv_chart_daily_title": "Biểu đồ tiến độ kiểm kê và chênh lệch PCS theo ngày",
+        "inv_chart_customer_share": "Tỉ trọng sản lượng kiểm kê theo khách hàng",
+        "inv_chart_customer_diff": "Khách hàng có chênh lệch PCS kiểm kê lớn nhất",
+        "inv_col_date": "Ngày",
+        "inv_col_dow": "Thứ",
+        "inv_col_task_count": "Số nhiệm vụ",
+        "inv_col_sku_count": "Số SKU",
+        "inv_col_sys_qty": "SL Hệ thống (PCS)",
+        "inv_col_act_qty": "SL Thực tế (PCS)",
+        "inv_col_diff_qty": "Chênh lệch (PCS)",
+        "inv_col_accuracy": "% Khớp",
+        "inv_col_status": "Trạng thái",
+        "inv_col_cust_name": "Tên khách hàng",
+        "inv_col_cust_type": "Phân loại",
+        "inv_col_share_pct": "% Tỉ trọng",
+        "inv_col_task_no": "Mã nhiệm vụ kiểm kê",
+        "inv_col_prod_name": "Tên sản phẩm",
+        "inv_col_location": "Vị trí / Kệ",
+        "inv_col_worker": "Nhân viên kiểm",
+        "inv_status_perfect": "Khớp 100%",
+        "inv_status_diff": "Lệch tồn",
+        "inv_btn_download_daily": "Tải bảng kiểm kê theo ngày (.csv)",
+        "inv_btn_download_cust": "Tải bảng đối soát khách hàng (.csv)",
+        "inv_btn_download_tasks": "Tải nhật ký nhiệm vụ (.csv)",
         "developed_by": "Phát triển bởi bộ phận kiểm soát chất lượng"
     },
     "ZH": {
@@ -500,6 +561,46 @@ TRANSLATIONS = {
         "sync_init": "正在执行首次后台同步...",
         "sync_new_files": "个新文件",
         "sync_error": "同步异常:",
+        # Inventory tab translations
+        "inv_title": "库存盘点与差异对账报表",
+        "inv_metric_tasks": "盘点任务总数",
+        "inv_metric_skus": "盘点品项数 (SKU)",
+        "inv_metric_system_qty": "系统账面数量",
+        "inv_metric_actual_qty": "实际盘点数量",
+        "inv_metric_diff_qty": "盘点差异数量 (PCS)",
+        "inv_metric_accuracy": "盘点准确率",
+        "inv_sub_tasks": "已执行盘点任务次数",
+        "inv_sub_skus": "涉及盘点SKU品项数",
+        "inv_sub_sys": "WMS系统账面库存件数",
+        "inv_sub_act": "现场实际清点件数",
+        "inv_sub_diff": "系统与实盘数量差异",
+        "inv_tab_daily": "按日盘点 (进度与差异)",
+        "inv_tab_customer": "按客户对账 (客户明细)",
+        "inv_tab_tasks": "盘点任务明细日志",
+        "inv_chart_daily_title": "每日盘点件数与差异趋势分析",
+        "inv_chart_customer_share": "各客户盘点业务量占比分析",
+        "inv_chart_customer_diff": "盘点差异件数最高客户排行",
+        "inv_col_date": "日期",
+        "inv_col_dow": "星期",
+        "inv_col_task_count": "任务数",
+        "inv_col_sku_count": "SKU数",
+        "inv_col_sys_qty": "系统数量 (PCS)",
+        "inv_col_act_qty": "实际数量 (PCS)",
+        "inv_col_diff_qty": "差异数量 (PCS)",
+        "inv_col_accuracy": "准确率",
+        "inv_col_status": "盘点状态",
+        "inv_col_cust_name": "客户名称",
+        "inv_col_cust_type": "客户类型",
+        "inv_col_share_pct": "占比",
+        "inv_col_task_no": "盘点任务编号",
+        "inv_col_prod_name": "商品名称",
+        "inv_col_location": "库位/货架",
+        "inv_col_worker": "盘点人员",
+        "inv_status_perfect": "完全吻合",
+        "inv_status_diff": "存在差异",
+        "inv_btn_download_daily": "导出每日盘点报表 (.csv)",
+        "inv_btn_download_cust": "导出客户对账报表 (.csv)",
+        "inv_btn_download_tasks": "导出任务明细报表 (.csv)",
         "developed_by": "由质量控制部开发"
     }
 }
@@ -573,20 +674,21 @@ STAGE_CONFIGS = {
     },
     "TRONG KHO": {
         "name_vn": "TRONG KHO",
-        "name_zh": "库存在库",
-        "title_vn": "BÁO CÁO TỒN KHO VẬN HÀNH",
-        "title_zh": "在库库存实物盘存报表",
-        "desc_vn": "Kiểm soát số lượng tồn kho thực tế và vị trí lưu trữ",
-        "desc_zh": "实时盘点在库物料库存量与库位分布状态",
+        "name_zh": "库内盘点",
+        "title_vn": "BÁO CÁO KIỂM KÊ & ĐỐI SOÁT TỒN KHO",
+        "title_zh": "库存盘点与差异对账报表",
+        "desc_vn": "Theo dõi số lượng nhiệm vụ kiểm kê, số lượng SKU, sản lượng thực tế và đối soát chênh lệch tồn kho",
+        "desc_zh": "监控盘点任务数、品项数(SKU)、实际盘点件数与系统差异对账",
+        "type": "inventory",
         "table": "fact_inventory",
         "where": "inventory_time IS NOT NULL",
         "time_col": "inventory_time",
-        "order_col": "sku",
+        "order_col": "inventory_check_no",
         "qty_col": "actual_qty",
-        "qty_label_vn": "Sản lượng tồn (Sản phẩm)",
-        "qty_label_zh": "在库件数（件）",
-        "order_label_vn": "Số mã hàng tồn",
-        "order_label_zh": "在库品项数（SKU）"
+        "qty_label_vn": "Sản lượng đếm thực tế (Sản phẩm)",
+        "qty_label_zh": "实际盘点数量(件)",
+        "order_label_vn": "Số nhiệm vụ kiểm kê",
+        "order_label_zh": "盘点任务数"
     },
     "LÊN KỆ": {
         "name_vn": "LÊN KỆ",
@@ -923,6 +1025,65 @@ st.markdown("""
 # ==========================================
 # TRUY VẤN DỮ LIỆU ĐA KHÂU TỐI ƯU
 # ==========================================
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_inventory_data():
+    """
+    Truy vấn dữ liệu chi tiết kiểm kê trong kho từ BigQuery.
+    - inventory_check_no: Mã nhiệm vụ kiểm kê
+    - inv_date: Ngày kiểm kê
+    - owner_name: Tên khách hàng (chuẩn hóa B2B: CHINT, KKV, ENVISION)
+    - customer_type: B2C / B2B
+    - sku: Mã hàng
+    - product_name: Tên sản phẩm
+    - location: Vị trí kệ
+    - worker_id: Nhân viên kiểm
+    - system_qty: SL hệ thống (PCS)
+    - actual_qty: SL thực tế kiểm kê (PCS)
+    - difference_qty: Chênh lệch PCS giữa hệ thống và thực tế
+    - Cache 5 phút.
+    """
+    client, error = get_bigquery_client()
+    if error or client is None:
+        return pd.DataFrame()
+
+    sql_query = f"""
+    SELECT 
+        DATE(inventory_time) as inv_date,
+        COALESCE(inventory_check_no, 'Chưa có mã') as inventory_check_no,
+        CASE 
+            WHEN UPPER(COALESCE(owner_name, '')) LIKE '%CHINT%' THEN 'CHINT'
+            WHEN UPPER(COALESCE(owner_name, '')) LIKE '%JINHE%' OR UPPER(COALESCE(owner_name, '')) LIKE '%KKV%' THEN 'KKV'
+            WHEN UPPER(COALESCE(owner_name, '')) LIKE '%ENVISION%' THEN 'ENVISION'
+            ELSE COALESCE(owner_name, 'Chưa xác định')
+        END as owner_name,
+        CASE 
+            WHEN UPPER(COALESCE(owner_name, '')) LIKE '%CHINT%' 
+              OR UPPER(COALESCE(owner_name, '')) LIKE '%JINHE%' 
+              OR UPPER(COALESCE(owner_name, '')) LIKE '%KKV%'
+              OR UPPER(COALESCE(owner_name, '')) LIKE '%ENVISION%' THEN 'B2B'
+            ELSE 'B2C'
+        END as customer_type,
+        sku,
+        COALESCE(product_name, '') as product_name,
+        COALESCE(location, '') as location,
+        COALESCE(worker_id, '') as worker_id,
+        inventory_time,
+        COALESCE(system_qty, 0) as system_qty,
+        COALESCE(actual_qty, 0) as actual_qty,
+        COALESCE(difference_qty, 0) as difference_qty
+    FROM `{PROJECT_ID}.{DATASET_ID}.fact_inventory`
+    WHERE inventory_time IS NOT NULL
+    """
+    df = client.query(sql_query).to_dataframe()
+    if not df.empty:
+        df['inv_date'] = pd.to_datetime(df['inv_date']).dt.date
+        df['system_qty'] = pd.to_numeric(df['system_qty'], errors='coerce').fillna(0).astype(int)
+        df['actual_qty'] = pd.to_numeric(df['actual_qty'], errors='coerce').fillna(0).astype(int)
+        df['difference_qty'] = pd.to_numeric(df['difference_qty'], errors='coerce').fillna(0).astype(int)
+
+    return df
+
+
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_stage_data(stage_key: str):
     """
@@ -2552,6 +2713,420 @@ def render_pipeline_summary(cust_type: str, cust_name: str, start_date: datetime
     st.dataframe(display_sum, width="stretch", hide_index=True)
 
 
+def render_inventory_dashboard(df_inventory: pd.DataFrame, cust_type: str, cust_name: str, start_date: datetime.date, end_date: datetime.date, t: dict, lang: str):
+    """
+    Dashboard chuyên biệt cho khâu TRONG KHO (Kiểm kê & Đối soát tồn kho):
+    - Đếm số nhiệm vụ kiểm kê (Task NO) mỗi ngày
+    - Đếm số SKU kiểm kê mỗi ngày
+    - Tổng sản lượng tồn hệ thống (system_qty) và thực tế (actual_qty)
+    - Chênh lệch PCS giữa hệ thống và thực tế (difference_qty)
+    - Phân tích chi tiết và đối soát theo từng khách hàng
+    """
+    if df_inventory.empty:
+        st.info("Chưa có dữ liệu kiểm kê trong cơ sở dữ liệu." if lang == "VN" else "数据库中暂无盘点数据。")
+        return
+
+    df = df_inventory.copy()
+
+    # 1. Lọc theo khoảng thời gian đối soát
+    df = df[(df['inv_date'] >= start_date) & (df['inv_date'] <= end_date)]
+
+    # 2. Lọc theo loại khách hàng
+    if cust_type and cust_type != t["all_option"]:
+        df = df[df['customer_type'] == cust_type]
+
+    # 3. Lọc theo tên khách hàng cụ thể
+    if cust_name and cust_name != t["all_option"]:
+        df = df[df['owner_name'] == cust_name]
+
+    if df.empty:
+        st.warning("Không tìm thấy dữ liệu kiểm kê phù hợp với điều kiện lọc." if lang == "VN" else "所选筛选条件下未检索到盘点记录。")
+        return
+
+    # Tính toán các chỉ số KPI điều hành
+    valid_tasks = df[df['inventory_check_no'] != 'Chưa có mã']['inventory_check_no']
+    total_tasks = valid_tasks.nunique() if not valid_tasks.empty else df['inv_date'].nunique()
+    total_skus = df['sku'].nunique()
+    total_system_qty = int(df['system_qty'].sum())
+    total_actual_qty = int(df['actual_qty'].sum())
+    total_diff_qty = int(df['difference_qty'].sum())
+
+    if total_system_qty > 0:
+        accuracy_pct = max(0.0, 100.0 - (total_diff_qty / total_system_qty * 100.0))
+    else:
+        accuracy_pct = 100.0
+
+    # Hiển thị 5 Thẻ KPI
+    m1, m2, m3, m4, m5 = st.columns(5)
+    with m1:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">{t['inv_metric_tasks']}</div>
+            <div class="metric-value">{total_tasks:,}</div>
+            <div class="metric-sub">{t['inv_sub_tasks']}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with m2:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">{t['inv_metric_skus']}</div>
+            <div class="metric-value">{total_skus:,}</div>
+            <div class="metric-sub">{t['inv_sub_skus']}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with m3:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">{t['inv_metric_system_qty']}</div>
+            <div class="metric-value">{total_system_qty:,}</div>
+            <div class="metric-sub">{t['inv_sub_sys']}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with m4:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">{t['inv_metric_actual_qty']}</div>
+            <div class="metric-value">{total_actual_qty:,}</div>
+            <div class="metric-sub">{t['inv_sub_act']}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with m5:
+        diff_color = "#34d399" if total_diff_qty == 0 else "#f87171"
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">{t['inv_metric_diff_qty']}</div>
+            <div class="metric-value" style="color: {diff_color};">{total_diff_qty:,}</div>
+            <div class="metric-sub">{t['inv_col_accuracy']}: <strong>{accuracy_pct:.2f}%</strong></div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("<div style='height: 16px;'></div>", unsafe_allow_html=True)
+
+    # 3 Tab phân tích chuyên sâu
+    tab_daily, tab_cust, tab_tasks = st.tabs([
+        t['inv_tab_daily'],
+        t['inv_tab_customer'],
+        t['inv_tab_tasks']
+    ])
+
+    # ==========================================
+    # TAB 1: THEO NGÀY (TIẾN ĐỘ & CHÊNH LỆCH MỖI NGÀY)
+    # ==========================================
+    with tab_daily:
+        daily_df = df.groupby('inv_date').agg(
+            task_count=('inventory_check_no', lambda x: x[x != 'Chưa có mã'].nunique() if (x != 'Chưa có mã').any() else 1),
+            sku_count=('sku', 'nunique'),
+            system_qty=('system_qty', 'sum'),
+            actual_qty=('actual_qty', 'sum'),
+            diff_qty=('difference_qty', 'sum')
+        ).reset_index().sort_values('inv_date', ascending=True)
+
+        daily_df['accuracy_pct'] = daily_df.apply(
+            lambda r: max(0.0, 100.0 - (r['diff_qty'] / r['system_qty'] * 100.0)) if r['system_qty'] > 0 else 100.0,
+            axis=1
+        )
+        daily_df['dow_name'] = daily_df['inv_date'].apply(lambda d: DOW_NAMES[lang][d.isoweekday() % 7 + 1])
+        daily_df['status'] = daily_df['diff_qty'].apply(
+            lambda d: t['inv_status_perfect'] if d == 0 else f"{t['inv_status_diff']} ({d:,})"
+        )
+
+        # Biểu đồ xu hướng Bar + Line
+        st.markdown(f'<div class="section-title">{t["inv_chart_daily_title"]}</div>', unsafe_allow_html=True)
+        fig_daily = go.Figure()
+
+        # Bar: SL Hệ thống
+        fig_daily.add_trace(go.Bar(
+            x=[d.strftime("%d/%m") for d in daily_df['inv_date']],
+            y=daily_df['system_qty'],
+            name=t['inv_col_sys_qty'],
+            marker=dict(color='#3b82f6'),
+            yaxis='y'
+        ))
+
+        # Bar: SL Thực tế
+        fig_daily.add_trace(go.Bar(
+            x=[d.strftime("%d/%m") for d in daily_df['inv_date']],
+            y=daily_df['actual_qty'],
+            name=t['inv_col_act_qty'],
+            marker=dict(color='#10b981'),
+            yaxis='y'
+        ))
+
+        # Line: Chênh lệch PCS
+        fig_daily.add_trace(go.Scatter(
+            x=[d.strftime("%d/%m") for d in daily_df['inv_date']],
+            y=daily_df['diff_qty'],
+            name=t['inv_col_diff_qty'],
+            mode='lines+markers',
+            line=dict(color='#f43f5e', width=3),
+            marker=dict(size=7, color='#f43f5e'),
+            yaxis='y2'
+        ))
+
+        fig_daily.update_layout(
+            barmode='group',
+            paper_bgcolor="#1e293b",
+            plot_bgcolor="#0f172a",
+            margin=dict(l=30, r=40, t=20, b=40),
+            font=dict(color="#e2e8f0"),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            yaxis=dict(title=t['inv_col_sys_qty'], gridcolor="#334155"),
+            yaxis2=dict(
+                title=t['inv_col_diff_qty'],
+                overlaying='y',
+                side='right',
+                gridcolor="rgba(0,0,0,0)",
+                showgrid=False
+            )
+        )
+        st.plotly_chart(fig_daily, use_container_width=True)
+
+        # Bảng tổng hợp theo ngày
+        display_daily = daily_df.copy()
+        display_daily['date_str'] = display_daily['inv_date'].apply(lambda d: d.strftime("%d/%m/%Y"))
+        
+        cols_show = ['date_str', 'dow_name', 'task_count', 'sku_count', 'system_qty', 'actual_qty', 'diff_qty', 'accuracy_pct', 'status']
+        table_view = display_daily[cols_show].copy()
+        table_view.columns = [
+            t['inv_col_date'],
+            t['inv_col_dow'],
+            t['inv_col_task_count'],
+            t['inv_col_sku_count'],
+            t['inv_col_sys_qty'],
+            t['inv_col_act_qty'],
+            t['inv_col_diff_qty'],
+            t['inv_col_accuracy'],
+            t['inv_col_status']
+        ]
+
+        # Format số
+        table_view[t['inv_col_task_count']] = table_view[t['inv_col_task_count']].apply(lambda x: f"{x:,}")
+        table_view[t['inv_col_sku_count']] = table_view[t['inv_col_sku_count']].apply(lambda x: f"{x:,}")
+        table_view[t['inv_col_sys_qty']] = table_view[t['inv_col_sys_qty']].apply(lambda x: f"{x:,}")
+        table_view[t['inv_col_act_qty']] = table_view[t['inv_col_act_qty']].apply(lambda x: f"{x:,}")
+        table_view[t['inv_col_diff_qty']] = table_view[t['inv_col_diff_qty']].apply(lambda x: f"{x:,}")
+        table_view[t['inv_col_accuracy']] = table_view[t['inv_col_accuracy']].apply(lambda x: f"{x:.2f}%")
+
+        # Thêm dòng TỔNG CỘNG
+        total_row = pd.DataFrame([{
+            t['inv_col_date']: t['lbl_total_column'],
+            t['inv_col_dow']: "-",
+            t['inv_col_task_count']: f"{total_tasks:,}",
+            t['inv_col_sku_count']: f"{total_skus:,}",
+            t['inv_col_sys_qty']: f"{total_system_qty:,}",
+            t['inv_col_act_qty']: f"{total_actual_qty:,}",
+            t['inv_col_diff_qty']: f"{total_diff_qty:,}",
+            t['inv_col_accuracy']: f"{accuracy_pct:.2f}%",
+            t['inv_col_status']: t['inv_status_perfect'] if total_diff_qty == 0 else f"{t['inv_status_diff']} ({total_diff_qty:,})"
+        }])
+        table_view_full = pd.concat([table_view, total_row], ignore_index=True)
+
+        st.dataframe(table_view_full, width="stretch", hide_index=True)
+
+        csv_daily = table_view_full.to_csv(index=False).encode('utf-8-sig')
+        st.download_button(
+            t['inv_btn_download_daily'],
+            data=csv_daily,
+            file_name=f"inventory_daily_{start_date}_{end_date}.csv",
+            mime="text/csv"
+        )
+
+    # ==========================================
+    # TAB 2: THEO KHÁCH HÀNG (ĐỐI SOÁT CHI TIẾT)
+    # ==========================================
+    with tab_cust:
+        cust_df = df.groupby(['owner_name', 'customer_type']).agg(
+            task_count=('inventory_check_no', lambda x: x[x != 'Chưa có mã'].nunique() if (x != 'Chưa có mã').any() else 1),
+            sku_count=('sku', 'nunique'),
+            system_qty=('system_qty', 'sum'),
+            actual_qty=('actual_qty', 'sum'),
+            diff_qty=('difference_qty', 'sum')
+        ).reset_index().sort_values('actual_qty', ascending=False)
+
+        cust_df['share_pct'] = (cust_df['actual_qty'] / total_actual_qty * 100.0) if total_actual_qty > 0 else 0.0
+        cust_df['accuracy_pct'] = cust_df.apply(
+            lambda r: max(0.0, 100.0 - (r['diff_qty'] / r['system_qty'] * 100.0)) if r['system_qty'] > 0 else 100.0,
+            axis=1
+        )
+
+        col_c1, col_c2 = st.columns(2)
+        with col_c1:
+            st.markdown(f'<div class="section-title">{t["inv_chart_customer_share"]}</div>', unsafe_allow_html=True)
+            top_pie_cust = cust_df.head(8).copy()
+            if len(cust_df) > 8:
+                other_share = cust_df.iloc[8:]['actual_qty'].sum()
+                top_pie_cust = pd.concat([top_pie_cust, pd.DataFrame([{
+                    'owner_name': 'Khác' if lang == 'VN' else '其他',
+                    'actual_qty': other_share
+                }])], ignore_index=True)
+            
+            fig_donut = px.pie(
+                top_pie_cust,
+                values='actual_qty',
+                names='owner_name',
+                hole=0.45,
+                color_discrete_sequence=px.colors.qualitative.Plotly
+            )
+            fig_donut.update_layout(
+                paper_bgcolor="#1e293b",
+                plot_bgcolor="#0f172a",
+                margin=dict(l=10, r=10, t=10, b=10),
+                font=dict(color="#e2e8f0"),
+                showlegend=True,
+                legend=dict(orientation="h", yanchor="top", y=-0.1)
+            )
+            st.plotly_chart(fig_donut, use_container_width=True)
+
+        with col_c2:
+            st.markdown(f'<div class="section-title">{t["inv_chart_customer_diff"]}</div>', unsafe_allow_html=True)
+            top_diff_cust = cust_df.sort_values('diff_qty', ascending=True).tail(8)
+            fig_diff_bar = px.bar(
+                top_diff_cust,
+                x='diff_qty',
+                y='owner_name',
+                orientation='h',
+                color='diff_qty',
+                color_continuous_scale='Reds'
+            )
+            fig_diff_bar.update_layout(
+                paper_bgcolor="#1e293b",
+                plot_bgcolor="#0f172a",
+                margin=dict(l=10, r=20, t=10, b=10),
+                font=dict(color="#e2e8f0"),
+                xaxis=dict(title=t['inv_col_diff_qty'], gridcolor="#334155"),
+                yaxis=dict(title=None),
+                coloraxis_showscale=False
+            )
+            st.plotly_chart(fig_diff_bar, use_container_width=True)
+
+        # Bảng đối soát chi tiết khách hàng
+        cust_table = cust_df[[
+            'owner_name', 'customer_type', 'task_count', 'sku_count', 
+            'system_qty', 'actual_qty', 'diff_qty', 'share_pct', 'accuracy_pct'
+        ]].copy()
+        
+        cust_table.columns = [
+            t['inv_col_cust_name'],
+            t['inv_col_cust_type'],
+            t['inv_col_task_count'],
+            t['inv_col_sku_count'],
+            t['inv_col_sys_qty'],
+            t['inv_col_act_qty'],
+            t['inv_col_diff_qty'],
+            t['inv_col_share_pct'],
+            t['inv_col_accuracy']
+        ]
+
+        cust_table[t['inv_col_task_count']] = cust_table[t['inv_col_task_count']].apply(lambda x: f"{x:,}")
+        cust_table[t['inv_col_sku_count']] = cust_table[t['inv_col_sku_count']].apply(lambda x: f"{x:,}")
+        cust_table[t['inv_col_sys_qty']] = cust_table[t['inv_col_sys_qty']].apply(lambda x: f"{x:,}")
+        cust_table[t['inv_col_act_qty']] = cust_table[t['inv_col_act_qty']].apply(lambda x: f"{x:,}")
+        cust_table[t['inv_col_diff_qty']] = cust_table[t['inv_col_diff_qty']].apply(lambda x: f"{x:,}")
+        cust_table[t['inv_col_share_pct']] = cust_table[t['inv_col_share_pct']].apply(lambda x: f"{x:.2f}%")
+        cust_table[t['inv_col_accuracy']] = cust_table[t['inv_col_accuracy']].apply(lambda x: f"{x:.2f}%")
+
+        # Dòng TỔNG CỘNG
+        total_cust_row = pd.DataFrame([{
+            t['inv_col_cust_name']: t['lbl_total_column'],
+            t['inv_col_cust_type']: "-",
+            t['inv_col_task_count']: f"{total_tasks:,}",
+            t['inv_col_sku_count']: f"{total_skus:,}",
+            t['inv_col_sys_qty']: f"{total_system_qty:,}",
+            t['inv_col_act_qty']: f"{total_actual_qty:,}",
+            t['inv_col_diff_qty']: f"{total_diff_qty:,}",
+            t['inv_col_share_pct']: "100.00%",
+            t['inv_col_accuracy']: f"{accuracy_pct:.2f}%"
+        }])
+        cust_table_full = pd.concat([cust_table, total_cust_row], ignore_index=True)
+
+        st.dataframe(cust_table_full, width="stretch", hide_index=True)
+
+        csv_cust = cust_table_full.to_csv(index=False).encode('utf-8-sig')
+        st.download_button(
+            t['inv_btn_download_cust'],
+            data=csv_cust,
+            file_name=f"inventory_customers_{start_date}_{end_date}.csv",
+            mime="text/csv"
+        )
+
+    # ==========================================
+    # TAB 3: NHẬT KÝ NHIỆM VỤ KIỂM KÊ (DANH SÁCH CHI TIẾT)
+    # ==========================================
+    with tab_tasks:
+        st.markdown(f'<div class="section-title">{t["inv_tab_tasks"]}</div>', unsafe_allow_html=True)
+        search_kw = st.text_input(
+            "Tìm kiếm theo Mã phiếu hoặc Mã SKU:" if lang == "VN" else "按盘点单号或SKU品项搜索：",
+            value="",
+            placeholder="Nhập mã phiếu kiểm kê hoặc mã hàng..." if lang == "VN" else "输入盘点任务号或商品编码..."
+        )
+
+        task_agg = df.groupby(['inventory_check_no', 'inv_date', 'owner_name', 'customer_type']).agg(
+            sku_count=('sku', 'nunique'),
+            system_qty=('system_qty', 'sum'),
+            actual_qty=('actual_qty', 'sum'),
+            diff_qty=('difference_qty', 'sum'),
+            worker_id=('worker_id', lambda x: str(x.iloc[0]) if len(x) > 0 and pd.notnull(x.iloc[0]) else '-'),
+            location_count=('location', 'nunique')
+        ).reset_index().sort_values('inv_date', ascending=False)
+
+        if search_kw.strip():
+            kw = search_kw.strip().upper()
+            matched_tasks = df[
+                df['inventory_check_no'].str.upper().str.contains(kw, na=False) |
+                df['sku'].str.upper().str.contains(kw, na=False) |
+                df['product_name'].str.upper().str.contains(kw, na=False)
+            ]['inventory_check_no'].unique()
+            task_agg = task_agg[task_agg['inventory_check_no'].isin(matched_tasks)]
+
+        task_agg['date_str'] = task_agg['inv_date'].apply(lambda d: d.strftime("%d/%m/%Y"))
+        task_agg['accuracy_pct'] = task_agg.apply(
+            lambda r: max(0.0, 100.0 - (r['diff_qty'] / r['system_qty'] * 100.0)) if r['system_qty'] > 0 else 100.0,
+            axis=1
+        )
+        task_agg['status'] = task_agg['diff_qty'].apply(
+            lambda d: t['inv_status_perfect'] if d == 0 else f"{t['inv_status_diff']} ({d:,})"
+        )
+
+        view_task = task_agg[[
+            'inventory_check_no', 'date_str', 'owner_name', 'customer_type',
+            'sku_count', 'system_qty', 'actual_qty', 'diff_qty', 'accuracy_pct', 'status', 'worker_id'
+        ]].copy()
+
+        view_task.columns = [
+            t['inv_col_task_no'],
+            t['inv_col_date'],
+            t['inv_col_cust_name'],
+            t['inv_col_cust_type'],
+            t['inv_col_sku_count'],
+            t['inv_col_sys_qty'],
+            t['inv_col_act_qty'],
+            t['inv_col_diff_qty'],
+            t['inv_col_accuracy'],
+            t['inv_col_status'],
+            t['inv_col_worker']
+        ]
+
+        view_task[t['inv_col_sku_count']] = view_task[t['inv_col_sku_count']].apply(lambda x: f"{x:,}")
+        view_task[t['inv_col_sys_qty']] = view_task[t['inv_col_sys_qty']].apply(lambda x: f"{x:,}")
+        view_task[t['inv_col_act_qty']] = view_task[t['inv_col_act_qty']].apply(lambda x: f"{x:,}")
+        view_task[t['inv_col_diff_qty']] = view_task[t['inv_col_diff_qty']].apply(lambda x: f"{x:,}")
+        view_task[t['inv_col_accuracy']] = view_task[t['inv_col_accuracy']].apply(lambda x: f"{x:.2f}%")
+
+        st.dataframe(view_task, width="stretch", hide_index=True)
+
+        csv_tasks = view_task.to_csv(index=False).encode('utf-8-sig')
+        st.download_button(
+            t['inv_btn_download_tasks'],
+            data=csv_tasks,
+            file_name=f"inventory_tasks_{start_date}_{end_date}.csv",
+            mime="text/csv"
+        )
+
+
 # ==========================================
 # MAIN APPLICATION CONTROLLER
 # ==========================================
@@ -2648,18 +3223,21 @@ def main():
 
         # 5. THÔNG TIN TRẠNG THÁI ĐỒNG BỘ TINH GỌN (SYNC STATUS)
         sync_state = get_global_sync_state()
-        last_sync_time = sync_state.get("last_sync")
+        last_sync_time = get_latest_sync_timestamp()
         if sync_state.get("error"):
             sync_time_text = f"{t.get('sync_error', 'Lỗi đồng bộ:')} {sync_state['error'][:40]}"
             badge_icon = "🔴"
+        elif sync_state.get("is_running"):
+            if last_sync_time:
+                sync_time_text = f"{t['sync_last_time']} {last_sync_time} ({t.get('sync_running', 'Đang đồng bộ...')})"
+            else:
+                sync_time_text = t['sync_running']
+            badge_icon = "🟡"
         elif last_sync_time:
             sync_time_text = f"{t['sync_last_time']} {last_sync_time}"
             if sync_state.get("synced_count", 0) > 0:
                 sync_time_text += f" ({sync_state['synced_count']} {t['sync_new_files']})"
             badge_icon = "🟢"
-        elif sync_state.get("is_running"):
-            sync_time_text = t['sync_running']
-            badge_icon = "🟡"
         else:
             sync_time_text = t['sync_init']
             badge_icon = "🟢"
@@ -2683,7 +3261,16 @@ def main():
     # TẢI DỮ LIỆU CỦA KHÂU HIỆN TẠI
     # ==========================================
     df_raw = pd.DataFrame()
-    if cur_cfg.get("type") not in ["summary", "backlog", "planning"]:
+    df_inventory = pd.DataFrame()
+
+    if cur_cfg.get("type") == "inventory":
+        with st.spinner("..."):
+            try:
+                df_inventory = fetch_inventory_data()
+            except Exception as ex:
+                st.error(str(ex))
+                return
+    elif cur_cfg.get("type") not in ["summary", "backlog", "planning"]:
         with st.spinner("..."):
             try:
                 df_raw = fetch_stage_data(selected_key)
@@ -2728,16 +3315,17 @@ def main():
             )
             st.markdown("</div>", unsafe_allow_html=True)
 
-        if not df_raw.empty:
+        filter_source_df = df_inventory if cur_cfg.get("type") == "inventory" else df_raw
+        if not filter_source_df.empty:
             if selected_cust_type == "B2B":
-                available_owners = [t["all_option"]] + [g for g in B2B_GROUPS if g in df_raw['owner_name'].unique()]
+                available_owners = [t["all_option"]] + [g for g in B2B_GROUPS if g in filter_source_df['owner_name'].unique()]
                 if len(available_owners) == 1:
                     available_owners = [t["all_option"]] + B2B_GROUPS
             elif selected_cust_type == "B2C":
-                b2c_names = sorted([n for n in df_raw[df_raw['customer_type'] == 'B2C']['owner_name'].unique() if n])
+                b2c_names = sorted([n for n in filter_source_df[filter_source_df['customer_type'] == 'B2C']['owner_name'].unique() if n])
                 available_owners = [t["all_option"]] + b2c_names
             else:
-                all_names = sorted([n for n in df_raw['owner_name'].unique() if n])
+                all_names = sorted([n for n in filter_source_df['owner_name'].unique() if n])
                 available_owners = [t["all_option"]] + all_names
         else:
             available_owners = [t["all_option"]] + B2B_GROUPS if selected_cust_type == "B2B" else [t["all_option"]]
@@ -2784,6 +3372,8 @@ def main():
         render_headcount_planning(selected_cust_type, selected_cust_name, start_date, end_date, t, lang)
     elif cur_cfg.get("type") == "summary":
         render_pipeline_summary(selected_cust_type, selected_cust_name, start_date, end_date, t, lang)
+    elif cur_cfg.get("type") == "inventory":
+        render_inventory_dashboard(df_inventory, selected_cust_type, selected_cust_name, start_date, end_date, t, lang)
     else:
         tab_day, tab_week, tab_month = st.tabs([
             t['tab_day'],

@@ -81,14 +81,15 @@ FOLDERS_CONFIG = [
         "folder_name": "INVENTORY",
         "stg_table":   "stg_inventory",
         "fact_table":  "fact_inventory",
-        "primary_keys":["sku","location","owner_name"],
+        "primary_keys":["inventory_check_no","sku","location","owner_name"],
         "time_col":    "inventory_time",
         "column_mapping": {
+            "Inventory Check NO.":       "inventory_check_no",
             "Owner Name":                "owner_name",
             "Goods NO.":                 "sku",
             "Goods Name":               "product_name",
             "Inventory QTY.":           "system_qty",
-            "Inventory Check Difference":"actual_qty",
+            "Inventory Check Difference":"difference_qty",
             "Cell":                     "location",
             "First Check Operator":     "worker_id",
             "First Check Time":         "inventory_time",
@@ -224,15 +225,25 @@ DATE_RANGE_PATTERN = re.compile(
 def parse_date_range_filename(filename: str):
     name = os.path.splitext(filename)[0].strip()
     m = DATE_RANGE_PATTERN.match(name)
-    if not m:
-        return None
-    year, m1, d1, part2, part3 = m.groups()
-    try:
-        start = date(int(year), int(m1), int(d1))
-        end   = date(int(year), int(part2), int(part3)) if part3 else date(int(year), int(m1), int(part2))
-        return start, end
-    except ValueError:
-        return None
+    if m:
+        year, m1, d1, part2, part3 = m.groups()
+        try:
+            start = date(int(year), int(m1), int(d1))
+            end   = date(int(year), int(part2), int(part3)) if part3 else date(int(year), int(m1), int(part2))
+            return start, end
+        except ValueError:
+            pass
+
+    m_single = re.search(r'(\d{4})-(\d{1,2})-(\d{1,2})', name)
+    if m_single:
+        y, m_val, d = m_single.groups()
+        try:
+            dt = date(int(y), int(m_val), int(d))
+            return dt, dt
+        except ValueError:
+            pass
+
+    return None
 
 def get_period_boundary(today=None):
     today = today or datetime.now().date()
@@ -384,6 +395,14 @@ def sync_folder(cfg, drive_svc, bq_client, processed_map, is_full_sync, dry_run,
 
             if "owner_name" in df.columns:
                 df["customer_type"] = df["owner_name"].apply(get_owner_customer_type)
+
+            if cfg["folder_name"] == "INVENTORY":
+                if "system_qty" in df.columns:
+                    df["system_qty"] = pd.to_numeric(df["system_qty"], errors="coerce").fillna(0).astype(int)
+                if "difference_qty" in df.columns:
+                    df["difference_qty"] = pd.to_numeric(df["difference_qty"], errors="coerce").fillna(0).astype(int)
+                if "system_qty" in df.columns and "difference_qty" in df.columns:
+                    df["actual_qty"] = df["system_qty"] - df["difference_qty"]
 
             import re as _re
             df.columns = [_re.sub(r'[^a-zA-Z0-9_]', '_', c) for c in df.columns]
