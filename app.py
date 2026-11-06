@@ -2594,7 +2594,7 @@ def render_headcount_planning(cust_type: str, cust_name: str, start_date: dateti
         detail_rows_html += render_detailed_client_block(c_name, clients_data[c_name], header_bg="#1e3a8a")
 
     total_block_html = (
-        f'<tr style="border-top:3px solid #2563eb;"><td colspan="9" style="background:#1d4ed8; color:#ffffff; font-weight:800; padding:10px 14px; font-size:14px; border: 1px solid #334155;">{total_label}</td></tr>' +
+        f'<tr><td colspan="9" style="background:#1d4ed8; color:#ffffff; font-weight:800; padding:10px 14px; font-size:14px; border: 1px solid #334155; border-bottom: 2px solid #2563eb;">{total_label}</td></tr>' +
         make_vol_row(t['lbl_fc_orders'], tot_fc_ords, grand_fc_o, False, False, "#1e293b", "#38bdf8") +
         make_vol_row(t['lbl_act_orders'], tot_act_ords, grand_act_o, False, False, "#1e293b", "#f1f5f9") +
         make_vol_row(t['lbl_pct_orders'], tot_pct_ords, grand_pct_o, False, True, "#0f172a", "#fbbf24") +
@@ -2602,7 +2602,7 @@ def render_headcount_planning(cust_type: str, cust_name: str, start_date: dateti
         make_vol_row(t['lbl_act_pcs'], tot_act_pcss, grand_act_p, True, False, "#1e293b", "#f1f5f9") +
         make_vol_row(t['lbl_pct_pcs'], tot_pct_pcss, grand_pct_p, False, True, "#0f172a", "#fbbf24")
     )
-    vol_table_body = detail_rows_html + total_block_html
+    vol_table_body = total_block_html + detail_rows_html
 
     vol_table_html = f"""<div style="overflow-x: auto; max-height: 600px; overflow-y: auto; border-radius: 8px; border: 1px solid #334155; box-shadow: 0 4px 16px rgba(0,0,0,0.3); margin-top: 6px;">
 <table style="width: 100%; border-collapse: collapse; background: #1e293b; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 13px;">
@@ -2640,6 +2640,10 @@ def render_headcount_planning(cust_type: str, cust_name: str, start_date: dateti
         )
     with c_dl2:
         vol_export_rows = []
+        vol_export_rows.append({"Khách hàng" if lang=="VN" else "客户名称": total_label, "Chỉ số" if lang=="VN" else "指标": t['lbl_fc_orders'], **{date_cols[i]: tot_fc_ords[i] for i in range(7)}, t['lbl_total_week']: grand_fc_o})
+        vol_export_rows.append({"Khách hàng" if lang=="VN" else "客户名称": total_label, "Chỉ số" if lang=="VN" else "指标": t['lbl_act_orders'], **{date_cols[i]: (tot_act_ords[i] if tot_act_ords[i] is not None else "-") for i in range(7)}, t['lbl_total_week']: (grand_act_o if grand_act_o is not None else "-")})
+        vol_export_rows.append({"Khách hàng" if lang=="VN" else "客户名称": total_label, "Chỉ số" if lang=="VN" else "指标": t['lbl_fc_pcs'], **{date_cols[i]: tot_fc_pcss[i] for i in range(7)}, t['lbl_total_week']: grand_fc_p})
+        vol_export_rows.append({"Khách hàng" if lang=="VN" else "客户名称": total_label, "Chỉ số" if lang=="VN" else "指标": t['lbl_act_pcs'], **{date_cols[i]: (tot_act_pcss[i] if tot_act_pcss[i] is not None else "-") for i in range(7)}, t['lbl_total_week']: (grand_act_p if grand_act_p is not None else "-")})
         for c in display_clients:
             vol_export_rows.append({"Khách hàng" if lang=="VN" else "客户名称": c, "Chỉ số" if lang=="VN" else "指标": t['lbl_fc_orders'], **{date_cols[i]: clients_data[c]["fc_ords"][i] for i in range(7)}, t['lbl_total_week']: sum(clients_data[c]["fc_ords"])})
             vol_export_rows.append({"Khách hàng" if lang=="VN" else "客户名称": c, "Chỉ số" if lang=="VN" else "指标": t['lbl_act_orders'], **{date_cols[i]: (clients_data[c]["act_ords"][i] if clients_data[c]["act_ords"][i] is not None else "-") for i in range(7)}, t['lbl_total_week']: (sum([v for v in clients_data[c]["act_ords"] if v is not None]) if any(v is not None for v in clients_data[c]["act_ords"]) else "-")})
@@ -3289,9 +3293,9 @@ def main():
     cur_stage_name = cur_cfg[f'name_{lang.lower()}'].upper()
     cur_stage_title = cur_cfg[f'title_{lang.lower()}']
 
-    # Khởi tạo ngày mặc định nếu chưa có
+    # Khởi tạo ngày mặc định nếu chưa có (mặc định là hôm nay)
     if "date_range_val" not in st.session_state:
-        st.session_state.date_range_val = (today_vn - timedelta(days=29), today_vn)
+        st.session_state.date_range_val = (today_vn, today_vn)
 
     # 1. Tiêu đề khâu vận hành nằm phía trên
     st.markdown(f'<div style="font-size: 22px; font-weight: 800; color: #ffffff; letter-spacing: 0.5px; margin: 4px 0 14px 0;">{cur_stage_title}</div>', unsafe_allow_html=True)
