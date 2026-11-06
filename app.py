@@ -419,7 +419,22 @@ TRANSLATIONS = {
         "inv_btn_download_daily": "Tải bảng kiểm kê theo ngày (.csv)",
         "inv_btn_download_cust": "Tải bảng đối soát khách hàng (.csv)",
         "inv_btn_download_tasks": "Tải nhật ký nhiệm vụ (.csv)",
-        "developed_by": "Phát triển bởi bộ phận kiểm soát chất lượng"
+        "developed_by": "Phát triển bởi bộ phận kiểm soát chất lượng",
+        # Packing Backlog integration
+        "card_backlog_label": "TỒN ĐỌNG (BACKLOG)",
+        "unit_order": "Đơn",
+        "unit_pcs_backlog": "PCS tồn đọng",
+        "sub_done_backlog_qty": "Đã đóng / Tổng PCS cần xử lý",
+        "sub_done_backlog_orders": "Đã đóng / Tổng đơn cần xử lý",
+        "sec_backlog_table": "DANH SÁCH TỒN ĐỌNG BACKLOG THEO KHÁCH HÀNG",
+        "col_customer_name": "Tên khách hàng",
+        "col_customer_type": "Phân loại",
+        "col_backlog_orders": "Số đơn tồn đọng",
+        "col_backlog_pcs": "Sản lượng tồn đọng (PCS)",
+        "col_backlog_share_orders": "% Tỉ trọng đơn",
+        "col_backlog_share_pcs": "% Tỉ trọng PCS",
+        "btn_download_backlog": "Tải dữ liệu tồn đọng Backlog (.csv)",
+        "msg_no_backlog": "Hiện không có đơn hàng tồn đọng backlog."
     },
     "ZH": {
         "app_title": "仓储管理运营监控看板",
@@ -608,7 +623,22 @@ TRANSLATIONS = {
         "inv_btn_download_daily": "导出每日盘点报表 (.csv)",
         "inv_btn_download_cust": "导出客户对账报表 (.csv)",
         "inv_btn_download_tasks": "导出任务明细报表 (.csv)",
-        "developed_by": "由质量控制部开发"
+        "developed_by": "由质量控制部开发",
+        # Packing Backlog integration
+        "card_backlog_label": "出库待打包积压 (BACKLOG)",
+        "unit_order": "单",
+        "unit_pcs_backlog": "件待打包",
+        "sub_done_backlog_qty": "已打包 / 需处理总件数",
+        "sub_done_backlog_orders": "已打包 / 需处理总单数",
+        "sec_backlog_table": "各客户出库积压明细报表 (BACKLOG)",
+        "col_customer_name": "客户名称",
+        "col_customer_type": "客户类型",
+        "col_backlog_orders": "积压订单数 (单)",
+        "col_backlog_pcs": "积压件数 (PCS)",
+        "col_backlog_share_orders": "单量占比 (%)",
+        "col_backlog_share_pcs": "件数占比 (%)",
+        "btn_download_backlog": "导出积压数据报表 (.csv)",
+        "msg_no_backlog": "当前无积压待打包订单数据。"
     }
 }
 
@@ -1267,36 +1297,32 @@ def fetch_dow_baselines(cache_version: float = 0.0) -> dict:
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_backlog_data(cache_version: float = 0.0):
-    """Truy vấn dữ liệu tồn đọng backlog & lịch sự kiện cho khâu DỰ KIẾN."""
+    """Truy vấn dữ liệu tồn đọng backlog & lịch sự kiện cho khâu DỰ KIẾN và ĐÓNG GÓI."""
     client, error = get_bigquery_client()
     if error or client is None:
         raise RuntimeError(error or "Không thể kết nối BigQuery")
 
     sql_backlog = f"""
     SELECT 
-        DATE(receive_date) as receive_date,
-        cargo_type,
-        CASE 
-            WHEN UPPER(COALESCE(owner_name, '')) LIKE '%CHINT%' THEN 'CHINT'
-            WHEN UPPER(COALESCE(owner_name, '')) LIKE '%JINHE%' OR UPPER(COALESCE(owner_name, '')) LIKE '%KKV%' THEN 'KKV'
-            WHEN UPPER(COALESCE(owner_name, '')) LIKE '%ENVISION%' THEN 'ENVISION'
-            ELSE COALESCE(owner_name, 'Chưa xác định')
-        END as owner_name,
-        CASE 
-            WHEN UPPER(COALESCE(owner_name, '')) LIKE '%CHINT%' 
-              OR UPPER(COALESCE(owner_name, '')) LIKE '%JINHE%' 
-              OR UPPER(COALESCE(owner_name, '')) LIKE '%KKV%'
-              OR UPPER(COALESCE(owner_name, '')) LIKE '%ENVISION%' THEN 'B2B'
-            ELSE 'B2C'
-        END as customer_type,
-        COUNT(DISTINCT order_no) as backlog_orders,
-        SUM(SAFE_CAST(to_be_received_qty AS FLOAT64)) as backlog_qty
+        order_no,
+        owner_name,
+        customer_type,
+        SAFE_CAST(piece_qty AS FLOAT64) as piece_qty,
+        received_time
     FROM `{PROJECT_ID}.{DATASET_ID}.fact_backlog`
-    WHERE receive_date IS NOT NULL
-    GROUP BY receive_date, cargo_type, owner_name, customer_type
-    ORDER BY receive_date DESC
     """
-    df_backlog = client.query(sql_backlog).to_dataframe()
+    try:
+        df_backlog = client.query(sql_backlog).to_dataframe()
+    except Exception as e:
+        df_backlog = pd.DataFrame(columns=['order_no', 'owner_name', 'customer_type', 'piece_qty', 'received_time'])
+
+    if not df_backlog.empty:
+        df_backlog['piece_qty'] = pd.to_numeric(df_backlog['piece_qty'], errors='coerce').fillna(0.0)
+        df_backlog['backlog_qty'] = df_backlog['piece_qty']
+        df_backlog['backlog_orders'] = 1
+        df_backlog['cargo_type'] = df_backlog['customer_type']
+    else:
+        df_backlog = pd.DataFrame(columns=['order_no', 'owner_name', 'customer_type', 'piece_qty', 'received_time', 'backlog_qty', 'backlog_orders', 'cargo_type'])
 
     sql_events = f"""
     SELECT event_date, event_name 
@@ -1403,41 +1429,81 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
 
     df_range = filter_by_date_range(df_filtered, start_date, end_date)
 
-    if df_range.empty:
+    tot_qty = df_range['total_qty'].sum() if not df_range.empty else 0.0
+    tot_orders = df_range['total_orders'].sum() if not df_range.empty else 0
+    num_cust = df_range['owner_name'].nunique() if not df_range.empty else 0
+    avg_qty_order = (tot_qty / tot_orders) if tot_orders > 0 else 0.0
+
+    backlog_orders = 0
+    backlog_qty = 0.0
+    df_bl_filtered = pd.DataFrame()
+    if stage_key == "ĐÓNG GÓI":
+        try:
+            sync_st = get_global_sync_state()
+            cur_v = sync_st.get("data_version", 0.0)
+            df_backlog_all, _ = fetch_backlog_data(cache_version=cur_v)
+            df_bl_filtered = filter_by_customer(df_backlog_all, selected_cust_type, selected_cust_name)
+            if not df_bl_filtered.empty:
+                backlog_orders = int(df_bl_filtered['order_no'].nunique())
+                backlog_qty = float(df_bl_filtered['piece_qty'].sum())
+        except Exception as e:
+            st.error(f"Lỗi tải Backlog: {e}")
+
+    if df_range.empty and stage_key != "ĐÓNG GÓI":
         st.warning(f"{t['no_data']}")
         return
 
-    tot_qty = df_range['total_qty'].sum()
-    tot_orders = df_range['total_orders'].sum()
-    num_cust = df_range['owner_name'].nunique()
-    avg_qty_order = (tot_qty / tot_orders) if tot_orders > 0 else 0.0
-
     qty_label = cfg.get(f"qty_label_{lang.lower()}", t["lbl_total_qty"])
     order_label = cfg.get(f"order_label_{lang.lower()}", t["lbl_total_orders"])
+
+    if stage_key == "ĐÓNG GÓI":
+        total_combined_qty = tot_qty + backlog_qty
+        pct_done_qty = (tot_qty / total_combined_qty * 100.0) if total_combined_qty > 0 else 0.0
+        c1_val = f"{tot_qty:,.0f} / {total_combined_qty:,.0f} ({pct_done_qty:.1f}%)"
+        c1_delta = f"• {t['sub_done_backlog_qty']}"
+
+        total_combined_orders = tot_orders + backlog_orders
+        pct_done_orders = (tot_orders / total_combined_orders * 100.0) if total_combined_orders > 0 else 0.0
+        c2_val = f"{tot_orders:,} / {total_combined_orders:,} ({pct_done_orders:.1f}%)"
+        c2_delta = f"• {t['sub_done_backlog_orders']}"
+
+        c3_label = t["card_backlog_label"]
+        c3_val = f"{backlog_orders:,} {t['unit_order']}"
+        c3_delta = f"• {backlog_qty:,.0f} {t['unit_pcs_backlog']}"
+        c3_val_style = 'style="color: #f59e0b;"'
+    else:
+        c1_val = f"{tot_qty:,.0f}"
+        c1_delta = f"• {t['lbl_selected_period']}"
+        c2_val = f"{tot_orders:,}"
+        c2_delta = f"• {t['lbl_orders_recorded']}"
+        c3_label = t['lbl_customers_count']
+        c3_val = f"{num_cust}"
+        c3_delta = f"• {t['lbl_active_partners']}"
+        c3_val_style = ""
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
         st.markdown(f"""
         <div class="kpi-card">
             <div class="kpi-label">{qty_label}</div>
-            <div class="kpi-value">{tot_qty:,.0f}</div>
-            <div class="kpi-delta delta-neutral">• {t['lbl_selected_period']}</div>
+            <div class="kpi-value">{c1_val}</div>
+            <div class="kpi-delta delta-neutral">{c1_delta}</div>
         </div>
         """, unsafe_allow_html=True)
     with c2:
         st.markdown(f"""
         <div class="kpi-card">
             <div class="kpi-label">{order_label}</div>
-            <div class="kpi-value">{tot_orders:,}</div>
-            <div class="kpi-delta delta-neutral">• {t['lbl_orders_recorded']}</div>
+            <div class="kpi-value">{c2_val}</div>
+            <div class="kpi-delta delta-neutral">{c2_delta}</div>
         </div>
         """, unsafe_allow_html=True)
     with c3:
         st.markdown(f"""
         <div class="kpi-card">
-            <div class="kpi-label">{t['lbl_customers_count']}</div>
-            <div class="kpi-value">{num_cust}</div>
-            <div class="kpi-delta delta-neutral">• {t['lbl_active_partners']}</div>
+            <div class="kpi-label">{c3_label}</div>
+            <div class="kpi-value" {c3_val_style}>{c3_val}</div>
+            <div class="kpi-delta delta-neutral">{c3_delta}</div>
         </div>
         """, unsafe_allow_html=True)
     with c4:
@@ -1621,6 +1687,64 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
                 )
         else:
             st.info(t["msg_no_hourly_data"])
+
+    # 5. BẢNG CHI TIẾT TỒN ĐỌNG (BACKLOG) THEO KHÁCH HÀNG (Áp dụng riêng cho ĐÓNG GÓI)
+    if stage_key == "ĐÓNG GÓI":
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown(f'<div class="chart-title-banner">{t["sec_backlog_table"]}</div>', unsafe_allow_html=True)
+
+        if not df_bl_filtered.empty:
+            df_bl_summary = df_bl_filtered.groupby(['owner_name', 'customer_type'], as_index=False).agg(
+                backlog_orders=('order_no', 'nunique'),
+                backlog_qty=('piece_qty', 'sum')
+            ).sort_values(by='backlog_orders', ascending=False)
+
+            tot_bl_tbl_orders = int(df_bl_summary['backlog_orders'].sum())
+            tot_bl_tbl_qty = float(df_bl_summary['backlog_qty'].sum())
+
+            df_bl_summary['share_orders'] = (df_bl_summary['backlog_orders'] / tot_bl_tbl_orders * 100) if tot_bl_tbl_orders > 0 else 0.0
+            df_bl_summary['share_qty'] = (df_bl_summary['backlog_qty'] / tot_bl_tbl_qty * 100) if tot_bl_tbl_qty > 0 else 0.0
+
+            total_row = pd.DataFrame([{
+                'owner_name': t['lbl_total_row'],
+                'customer_type': '-',
+                'backlog_orders': tot_bl_tbl_orders,
+                'backlog_qty': tot_bl_tbl_qty,
+                'share_orders': 100.0,
+                'share_qty': 100.0
+            }])
+            df_bl_display = pd.concat([df_bl_summary, total_row], ignore_index=True)
+
+            df_bl_formatted = df_bl_display.copy()
+            df_bl_formatted['backlog_orders'] = df_bl_formatted['backlog_orders'].apply(lambda x: f"{x:,.0f}")
+            df_bl_formatted['backlog_qty'] = df_bl_formatted['backlog_qty'].apply(lambda x: f"{x:,.0f}")
+            df_bl_formatted['share_orders'] = df_bl_formatted['share_orders'].apply(lambda x: f"{x:.1f}%")
+            df_bl_formatted['share_qty'] = df_bl_formatted['share_qty'].apply(lambda x: f"{x:.1f}%")
+
+            df_bl_formatted.columns = [
+                t['col_customer_name'],
+                t['col_customer_type'],
+                t['col_backlog_orders'],
+                t['col_backlog_pcs'],
+                t['col_backlog_share_orders'],
+                t['col_backlog_share_pcs']
+            ]
+
+            st.dataframe(df_bl_formatted, width="stretch", height=320, hide_index=True)
+
+            col_bl_csv, _ = st.columns([1.5, 2.5])
+            with col_bl_csv:
+                csv_bl_bytes = df_bl_display.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
+                st.download_button(
+                    label=t['btn_download_backlog'],
+                    data=csv_bl_bytes,
+                    file_name=f"packing_backlog_{datetime.date.today().strftime('%Y%m%d')}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                    key="btn_dl_packing_backlog"
+                )
+        else:
+            st.info(t["msg_no_backlog"])
 
 # ==========================================
 # TAB 2: TUẦN (WEEK-OVER-WEEK - WoW ANALYSIS)

@@ -207,13 +207,15 @@ FOLDERS_CONFIG = [
         "stg_table":   "stg_backlog",
         "fact_table":  "fact_backlog",
         "primary_keys":["order_no"],
-        "time_col":    "receive_date",
+        "time_col":    "received_time",
         "column_mapping": {
-            "Receive Date":        "receive_date",
-            "JD Inbound NO.":      "order_no",
-            "To Be Received QTY.": "to_be_received_qty",
-            "Task Type":           "cargo_type",
+            "JD Outbound NO.":     "order_no",
             "Owner Name":          "owner_name",
+            "Piece QTY.":          "piece_qty",
+            "Received Time":       "received_time",
+            "Receive Date":        "received_time",
+            "JD Inbound NO.":      "order_no",
+            "To Be Received QTY.": "piece_qty",
         },
     },
 ]
@@ -401,6 +403,12 @@ def sync_folder(cfg, drive_svc, bq_client, processed_map, is_full_sync, dry_run,
                     df["difference_qty"] = pd.to_numeric(df["difference_qty"], errors="coerce").fillna(0).astype(int)
                 if "system_qty" in df.columns and "difference_qty" in df.columns:
                     df["actual_qty"] = df["system_qty"] - df["difference_qty"]
+
+            if cfg["folder_name"] == "BACKLOG":
+                if "piece_qty" in df.columns:
+                    df["piece_qty"] = pd.to_numeric(df["piece_qty"], errors="coerce").fillna(0).astype(float)
+                if "received_time" not in df.columns or df["received_time"].isnull().all():
+                    df["received_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
             import re as _re
             df.columns = [_re.sub(r'[^a-zA-Z0-9_]', '_', c) for c in df.columns]
