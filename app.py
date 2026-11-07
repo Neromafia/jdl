@@ -447,7 +447,12 @@ TRANSLATIONS = {
         "col_backlog_share_orders": "% Tỉ trọng đơn",
         "col_backlog_share_pcs": "% Tỉ trọng PCS",
         "btn_download_backlog": "Tải dữ liệu tồn đọng Backlog (.csv)",
-        "msg_no_backlog": "Hiện không có đơn hàng tồn đọng backlog."
+        "msg_no_backlog": "Hiện không có đơn hàng tồn đọng backlog.",
+        # Packing Customer Share Table
+        "sec_packing_share_table": "BẢNG TỔNG HỢP TỈ TRỌNG SỐ ĐƠN & SẢN LƯỢNG (PCS) THEO KHÁCH HÀNG",
+        "col_packing_orders": "Số đơn đóng gói",
+        "col_packing_qty": "Sản lượng đóng gói (PCS)",
+        "btn_download_packing_share": "Tải bảng tỉ trọng đóng gói (.csv)"
     },
     "ZH": {
         "app_title": "仓储管理运营监控看板 - 京东物流",
@@ -651,7 +656,12 @@ TRANSLATIONS = {
         "col_backlog_share_orders": "单量占比 (%)",
         "col_backlog_share_pcs": "件数占比 (%)",
         "btn_download_backlog": "导出积压数据报表 (.csv)",
-        "msg_no_backlog": "当前无积压待打包订单数据。"
+        "msg_no_backlog": "当前无积压待打包订单数据。",
+        # Packing Customer Share Table
+        "sec_packing_share_table": "各客户打包订单量与件数占比明细表",
+        "col_packing_orders": "打包订单数",
+        "col_packing_qty": "打包件数 (PCS)",
+        "btn_download_packing_share": "导出打包占比明细 (.csv)"
     }
 }
 
@@ -959,21 +969,98 @@ st.markdown("""
         margin: 14px 0;
     }
 
-    /* Warehouse Selectbox styling */
-    div[data-testid="stSidebar"] div[data-testid="stSelectbox"] div[data-baseweb="select"] {
+    /* WAREHOUSE SELECTOR ROW: PERFECT HORIZONTAL ALIGNMENT */
+    section[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"]:has(.warehouse-inline-badge) {
+        display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        gap: 8px !important;
+        margin-top: 2px !important;
+        margin-bottom: 8px !important;
+        width: 100% !important;
+    }
+    section[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"]:has(.warehouse-inline-badge) > div[data-testid="column"] {
+        min-width: 0 !important;
+        width: auto !important;
+        display: flex !important;
+        align-items: center !important;
+    }
+    section[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"]:has(.warehouse-inline-badge) > div[data-testid="column"]:first-child {
+        flex: 0 0 auto !important;
+        white-space: nowrap !important;
+    }
+    section[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"]:has(.warehouse-inline-badge) > div[data-testid="column"]:last-child {
+        flex: 1 1 auto !important;
+        min-width: 120px !important;
+    }
+    section[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"]:has(.warehouse-inline-badge) div[data-testid="stSelectbox"] {
+        margin: 0 !important;
+        padding: 0 !important;
+        width: 100% !important;
+    }
+    section[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"]:has(.warehouse-inline-badge) div[data-testid="stSelectbox"] > div {
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+    section[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"]:has(.warehouse-inline-badge) div[data-baseweb="select"] {
         border-radius: 8px !important;
         background-color: #152238 !important;
-        border: 1px solid rgba(51, 65, 85, 0.6) !important;
+        border: 1px solid rgba(51, 65, 85, 0.7) !important;
+        min-height: 34px !important;
+        height: 34px !important;
+        box-sizing: border-box !important;
         transition: all 0.25s ease !important;
     }
-    div[data-testid="stSidebar"] div[data-testid="stSelectbox"] div[data-baseweb="select"]:hover {
+    section[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"]:has(.warehouse-inline-badge) div[data-baseweb="select"]:hover {
         border-color: #38bdf8 !important;
         box-shadow: 0 0 10px rgba(56, 189, 248, 0.25) !important;
     }
-    div[data-testid="stSidebar"] div[data-testid="stSelectbox"] div[data-baseweb="select"] * {
+    section[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"]:has(.warehouse-inline-badge) div[data-baseweb="select"] > div {
+        min-height: 34px !important;
+        height: 34px !important;
+        padding-top: 0 !important;
+        padding-bottom: 0 !important;
+        padding-left: 8px !important;
+        padding-right: 6px !important;
+        display: flex !important;
+        align-items: center !important;
+    }
+    section[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"]:has(.warehouse-inline-badge) div[data-baseweb="select"] * {
         color: #f1f5f9 !important;
         font-weight: 600 !important;
         font-size: 13px !important;
+    }
+
+    .warehouse-inline-badge {
+        display: flex !important;
+        align-items: center !important;
+        gap: 6px !important;
+        white-space: nowrap !important;
+        height: 34px !important;
+        line-height: 34px !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+    .warehouse-inline-label {
+        font-size: 11.5px !important;
+        font-weight: 700 !important;
+        color: #94a3b8 !important;
+        letter-spacing: 0.5px !important;
+        text-transform: uppercase !important;
+        display: inline-block !important;
+        vertical-align: middle !important;
+    }
+    .wh-status-dot {
+        width: 7px !important;
+        height: 7px !important;
+        border-radius: 50% !important;
+        background: #10b981 !important;
+        display: inline-block !important;
+        box-shadow: 0 0 8px rgba(16, 185, 129, 0.8) !important;
+        animation: statusPulse 2s infinite alternate ease-in-out !important;
+        flex-shrink: 0 !important;
     }
 
     /* NATIVE SIDEBAR BUTTONS: SMOOTH ANIMATIONS & HOVER */
@@ -1116,20 +1203,7 @@ st.markdown("""
         margin-bottom: 4px;
     }
     
-    .warehouse-inline-badge {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        white-space: nowrap;
-        padding: 4px 0;
-    }
-    .warehouse-inline-label {
-        font-size: 11.5px;
-        font-weight: 700;
-        color: #94a3b8;
-        letter-spacing: 0.5px;
-        text-transform: uppercase;
-    }
+    /* warehouse badge styled in header section */
     .kpi-delta {
         font-size: 12px;
         font-weight: 500;
@@ -1703,60 +1777,116 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # 1. BIỂU ĐỒ TỈ TRỌNG THEO ĐƠN VÀ THEO PCS (PIE CHARTS)
-    df_cust_share = df_range.groupby('owner_name', as_index=False).agg({
-        'total_orders': 'sum',
-        'total_qty': 'sum'
-    })
-    
-    col_pie1, col_pie2 = st.columns(2)
-    with col_pie1:
-        st.markdown(f'<div class="chart-title-banner">{t["pie_share_orders"]}</div>', unsafe_allow_html=True)
-        if not df_cust_share.empty and df_cust_share['total_orders'].sum() > 0:
-            fig_p1 = px.pie(
-                df_cust_share,
-                values='total_orders',
-                names='owner_name',
-                hole=0.45,
-                template="plotly_dark",
-                color_discrete_sequence=px.colors.qualitative.Plotly
-            )
-            fig_p1.update_traces(textposition='inside', textinfo='percent+label', insidetextorientation='radial')
-            fig_p1.update_layout(
-                title=None,
-                paper_bgcolor="#1e293b",
-                plot_bgcolor="#0f172a",
-                margin=dict(l=20, r=20, t=10, b=30),
-                legend=dict(orientation="h", yanchor="top", y=-0.1, xanchor="center", x=0.5, font=dict(color="#94a3b8", size=10)),
-                height=320
-            )
-            st.plotly_chart(fig_p1, use_container_width=True)
-        else:
-            st.info(t["no_data"])
+    # 1. BIỂU ĐỒ HOẶC BẢNG TỈ TRỌNG THEO ĐƠN VÀ THEO PCS
+    if stage_key == "ĐÓNG GÓI":
+        st.markdown(f'<div class="chart-title-banner">{t["sec_packing_share_table"]}</div>', unsafe_allow_html=True)
+        if not df_range.empty:
+            df_cust_share = df_range.groupby(['owner_name', 'customer_type'], as_index=False).agg({
+                'total_orders': 'sum',
+                'total_qty': 'sum'
+            })
+            tot_tbl_orders = int(df_cust_share['total_orders'].sum())
+            tot_tbl_qty = float(df_cust_share['total_qty'].sum())
 
-    with col_pie2:
-        st.markdown(f'<div class="chart-title-banner">{t["pie_share_qty"]}</div>', unsafe_allow_html=True)
-        if not df_cust_share.empty and df_cust_share['total_qty'].sum() > 0:
-            fig_p2 = px.pie(
-                df_cust_share,
-                values='total_qty',
-                names='owner_name',
-                hole=0.45,
-                template="plotly_dark",
-                color_discrete_sequence=px.colors.qualitative.Safe
-            )
-            fig_p2.update_traces(textposition='inside', textinfo='percent+label', insidetextorientation='radial')
-            fig_p2.update_layout(
-                title=None,
-                paper_bgcolor="#1e293b",
-                plot_bgcolor="#0f172a",
-                margin=dict(l=20, r=20, t=10, b=30),
-                legend=dict(orientation="h", yanchor="top", y=-0.1, xanchor="center", x=0.5, font=dict(color="#94a3b8", size=10)),
-                height=320
-            )
-            st.plotly_chart(fig_p2, use_container_width=True)
+            df_cust_share['order_share_pct'] = (df_cust_share['total_orders'] / tot_tbl_orders * 100).fillna(0) if tot_tbl_orders > 0 else 0
+            df_cust_share['qty_share_pct'] = (df_cust_share['total_qty'] / tot_tbl_qty * 100).fillna(0) if tot_tbl_qty > 0 else 0
+
+            df_cust_share = df_cust_share.sort_values(by='total_orders', ascending=False)
+
+            total_share_row = pd.DataFrame([{
+                'owner_name': t['lbl_total_row'],
+                'customer_type': '-',
+                'total_orders': tot_tbl_orders,
+                'order_share_pct': 100.0 if tot_tbl_orders > 0 else 0,
+                'total_qty': tot_tbl_qty,
+                'qty_share_pct': 100.0 if tot_tbl_qty > 0 else 0
+            }])
+            df_cust_share_with_tot = pd.concat([df_cust_share, total_share_row], ignore_index=True)
+
+            df_cust_disp = df_cust_share_with_tot.copy()
+            df_cust_disp['total_orders'] = df_cust_disp['total_orders'].apply(lambda x: f"{x:,.0f}")
+            df_cust_disp['order_share_pct'] = df_cust_disp['order_share_pct'].apply(lambda x: f"{x:.1f}%")
+            df_cust_disp['total_qty'] = df_cust_disp['total_qty'].apply(lambda x: f"{x:,.0f}")
+            df_cust_disp['qty_share_pct'] = df_cust_disp['qty_share_pct'].apply(lambda x: f"{x:.1f}%")
+
+            df_cust_disp.rename(columns={
+                'owner_name': t['col_customer_name'],
+                'customer_type': t['col_customer_type'],
+                'total_orders': t['col_packing_orders'],
+                'order_share_pct': t['col_backlog_share_orders'],
+                'total_qty': t['col_packing_qty'],
+                'qty_share_pct': t['col_backlog_share_pcs']
+            }, inplace=True)
+
+            st.dataframe(df_cust_disp, width="stretch", height=280, hide_index=True)
+
+            col_csv_share, _ = st.columns([1.5, 2.5])
+            with col_csv_share:
+                csv_share_bytes = df_cust_disp.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
+                st.download_button(
+                    label=t['btn_download_packing_share'],
+                    data=csv_share_bytes,
+                    file_name=f"packing_customer_share_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                    key=f"btn_dl_packing_share_{stage_key}"
+                )
         else:
             st.info(t["no_data"])
+    else:
+        df_cust_share = df_range.groupby('owner_name', as_index=False).agg({
+            'total_orders': 'sum',
+            'total_qty': 'sum'
+        })
+        
+        col_pie1, col_pie2 = st.columns(2)
+        with col_pie1:
+            st.markdown(f'<div class="chart-title-banner">{t["pie_share_orders"]}</div>', unsafe_allow_html=True)
+            if not df_cust_share.empty and df_cust_share['total_orders'].sum() > 0:
+                fig_p1 = px.pie(
+                    df_cust_share,
+                    values='total_orders',
+                    names='owner_name',
+                    hole=0.45,
+                    template="plotly_dark",
+                    color_discrete_sequence=px.colors.qualitative.Plotly
+                )
+                fig_p1.update_traces(textposition='inside', textinfo='percent+label', insidetextorientation='radial')
+                fig_p1.update_layout(
+                    title=None,
+                    paper_bgcolor="#1e293b",
+                    plot_bgcolor="#0f172a",
+                    margin=dict(l=20, r=20, t=10, b=30),
+                    legend=dict(orientation="h", yanchor="top", y=-0.1, xanchor="center", x=0.5, font=dict(color="#94a3b8", size=10)),
+                    height=320
+                )
+                st.plotly_chart(fig_p1, use_container_width=True)
+            else:
+                st.info(t["no_data"])
+
+        with col_pie2:
+            st.markdown(f'<div class="chart-title-banner">{t["pie_share_qty"]}</div>', unsafe_allow_html=True)
+            if not df_cust_share.empty and df_cust_share['total_qty'].sum() > 0:
+                fig_p2 = px.pie(
+                    df_cust_share,
+                    values='total_qty',
+                    names='owner_name',
+                    hole=0.45,
+                    template="plotly_dark",
+                    color_discrete_sequence=px.colors.qualitative.Safe
+                )
+                fig_p2.update_traces(textposition='inside', textinfo='percent+label', insidetextorientation='radial')
+                fig_p2.update_layout(
+                    title=None,
+                    paper_bgcolor="#1e293b",
+                    plot_bgcolor="#0f172a",
+                    margin=dict(l=20, r=20, t=10, b=30),
+                    legend=dict(orientation="h", yanchor="top", y=-0.1, xanchor="center", x=0.5, font=dict(color="#94a3b8", size=10)),
+                    height=320
+                )
+                st.plotly_chart(fig_p2, use_container_width=True)
+            else:
+                st.info(t["no_data"])
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -1785,39 +1915,45 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
         aggfunc='sum',
         fill_value=0
     )
-    for h in range(24):
-        if h not in pivot_cust.columns:
-            pivot_cust[h] = 0
-    pivot_cust = pivot_cust[sorted(pivot_cust.columns)]
-    pivot_cust[t['lbl_total_column']] = pivot_cust.sum(axis=1)
-    pivot_cust = pivot_cust.sort_values(t['lbl_total_column'], ascending=False)
+    # Chỉ giữ các khung giờ có phát sinh dữ liệu (sum > 0), ẩn các khung giờ không có số liệu
+    raw_hour_cols = [c for c in pivot_cust.columns if isinstance(c, (int, float, np.integer)) or str(c).isdigit()]
+    active_hours = sorted([int(h) for h in raw_hour_cols if pivot_cust[h].sum() > 0])
 
-    total_row = pivot_cust.sum(axis=0)
-    total_row.name = t['lbl_total_row']
-    pivot_cust_with_total = pd.concat([pivot_cust, pd.DataFrame([total_row])])
+    if active_hours:
+        pivot_cust = pivot_cust[active_hours]
+        pivot_cust[t['lbl_total_column']] = pivot_cust.sum(axis=1)
+        pivot_cust = pivot_cust.sort_values(t['lbl_total_column'], ascending=False)
 
-    rename_cols = {h: f"{h:02d}:00" for h in range(24)}
-    display_cust_pivot = pivot_cust_with_total.rename(columns=rename_cols).reset_index()
-    display_cust_pivot.rename(columns={'index': t['lbl_customer_col']}, inplace=True)
+        total_row = pivot_cust.sum(axis=0)
+        total_row.name = t['lbl_total_row']
+        pivot_cust_with_total = pd.concat([pivot_cust, pd.DataFrame([total_row])])
 
-    formatted_cust_pivot = display_cust_pivot.copy()
-    for col in formatted_cust_pivot.columns:
-        if col != t['lbl_customer_col']:
-            formatted_cust_pivot[col] = formatted_cust_pivot[col].apply(lambda x: f"{x:,.0f}" if x > 0 else "-")
+        rename_cols = {h: f"{h:02d}:00" for h in active_hours}
+        display_cust_pivot = pivot_cust_with_total.rename(columns=rename_cols).reset_index()
+        display_cust_pivot.rename(columns={'index': t['lbl_customer_col']}, inplace=True)
 
-    st.dataframe(formatted_cust_pivot, width="stretch", height=280, hide_index=True)
+        formatted_cust_pivot = display_cust_pivot.copy()
+        for col in formatted_cust_pivot.columns:
+            if col != t['lbl_customer_col']:
+                formatted_cust_pivot[col] = formatted_cust_pivot[col].apply(
+                    lambda x: f"{x:,.0f}" if isinstance(x, (int, float, np.number)) and x > 0 else ("-" if isinstance(x, (int, float, np.number)) else str(x))
+                )
 
-    col_csv1, _ = st.columns([1.5, 2.5])
-    with col_csv1:
-        csv_bytes = display_cust_pivot.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
-        st.download_button(
-            label=t['btn_download_hourly'],
-            data=csv_bytes,
-            file_name=f"hourly_customers_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}.csv",
-            mime="text/csv",
-            use_container_width=True,
-            key=f"btn_dl_hourly_cust_{stage_key}"
-        )
+        st.dataframe(formatted_cust_pivot, width="stretch", height=280, hide_index=True)
+
+        col_csv1, _ = st.columns([1.5, 2.5])
+        with col_csv1:
+            csv_bytes = display_cust_pivot.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
+            st.download_button(
+                label=t['btn_download_hourly'],
+                data=csv_bytes,
+                file_name=f"hourly_customers_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}.csv",
+                mime="text/csv",
+                use_container_width=True,
+                key=f"btn_dl_hourly_cust_{stage_key}"
+            )
+    else:
+        st.info(t["msg_no_hourly_data"])
 
     # 4. BẢNG SẢN LƯỢNG THEO TỪNG KHUNG GIỜ THEO NHÂN VIÊN (Áp dụng cho Nhặt hàng & Đóng gói)
     if cfg.get("table") in ["fact_picking", "fact_packing"]:
@@ -1839,38 +1975,44 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
                 aggfunc='sum',
                 fill_value=0
             )
-            for h in range(24):
-                if h not in pivot_worker.columns:
-                    pivot_worker[h] = 0
-            pivot_worker = pivot_worker[sorted(pivot_worker.columns)]
-            pivot_worker[t['lbl_total_column']] = pivot_worker.sum(axis=1)
-            pivot_worker = pivot_worker.sort_values(t['lbl_total_column'], ascending=False)
+            raw_worker_hours = [c for c in pivot_worker.columns if isinstance(c, (int, float, np.integer)) or str(c).isdigit()]
+            active_worker_hours = sorted([int(h) for h in raw_worker_hours if pivot_worker[h].sum() > 0])
 
-            worker_total_row = pivot_worker.sum(axis=0)
-            worker_total_row.name = t['lbl_total_row']
-            pivot_worker_with_total = pd.concat([pivot_worker, pd.DataFrame([worker_total_row])])
+            if active_worker_hours:
+                pivot_worker = pivot_worker[active_worker_hours]
+                pivot_worker[t['lbl_total_column']] = pivot_worker.sum(axis=1)
+                pivot_worker = pivot_worker.sort_values(t['lbl_total_column'], ascending=False)
 
-            display_worker_pivot = pivot_worker_with_total.rename(columns=rename_cols).reset_index()
-            display_worker_pivot.rename(columns={'index': t['col_worker']}, inplace=True)
+                worker_total_row = pivot_worker.sum(axis=0)
+                worker_total_row.name = t['lbl_total_row']
+                pivot_worker_with_total = pd.concat([pivot_worker, pd.DataFrame([worker_total_row])])
 
-            formatted_worker_pivot = display_worker_pivot.copy()
-            for col in formatted_worker_pivot.columns:
-                if col != t['col_worker']:
-                    formatted_worker_pivot[col] = formatted_worker_pivot[col].apply(lambda x: f"{x:,.0f}" if x > 0 else "-")
+                rename_cols_worker = {h: f"{h:02d}:00" for h in active_worker_hours}
+                display_worker_pivot = pivot_worker_with_total.rename(columns=rename_cols_worker).reset_index()
+                display_worker_pivot.rename(columns={'index': t['col_worker']}, inplace=True)
 
-            st.dataframe(formatted_worker_pivot, width="stretch", height=320, hide_index=True)
+                formatted_worker_pivot = display_worker_pivot.copy()
+                for col in formatted_worker_pivot.columns:
+                    if col != t['col_worker']:
+                        formatted_worker_pivot[col] = formatted_worker_pivot[col].apply(
+                            lambda x: f"{x:,.0f}" if isinstance(x, (int, float, np.number)) and x > 0 else ("-" if isinstance(x, (int, float, np.number)) else str(x))
+                        )
 
-            col_csv2, _ = st.columns([1.5, 2.5])
-            with col_csv2:
-                csv_worker_bytes = display_worker_pivot.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
-                st.download_button(
-                    label=t['btn_download_staff_hourly'],
-                    data=csv_worker_bytes,
-                    file_name=f"hourly_staff_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}.csv",
-                    mime="text/csv",
-                    use_container_width=True,
-                    key=f"btn_dl_hourly_staff_{stage_key}"
-                )
+                st.dataframe(formatted_worker_pivot, width="stretch", height=320, hide_index=True)
+
+                col_csv2, _ = st.columns([1.5, 2.5])
+                with col_csv2:
+                    csv_worker_bytes = display_worker_pivot.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
+                    st.download_button(
+                        label=t['btn_download_staff_hourly'],
+                        data=csv_worker_bytes,
+                        file_name=f"hourly_staff_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}.csv",
+                        mime="text/csv",
+                        use_container_width=True,
+                        key=f"btn_dl_hourly_staff_{stage_key}"
+                    )
+            else:
+                st.info(t["msg_no_hourly_data"])
         else:
             st.info(t["msg_no_hourly_data"])
 
@@ -3559,7 +3701,7 @@ def main():
         """, unsafe_allow_html=True)
 
         # Dropdown chọn kho cùng hàng với text KHO VẬN HÀNH
-        col_wh_txt, col_wh_drop = st.columns([1.1, 1.4], gap="small", vertical_alignment="center")
+        col_wh_txt, col_wh_drop = st.columns([1.0, 1.3], gap="small", vertical_alignment="center")
         with col_wh_txt:
             st.markdown(f"""
             <div class="warehouse-inline-badge">
