@@ -969,98 +969,88 @@ st.markdown("""
         margin: 14px 0;
     }
 
-    /* WAREHOUSE SELECTOR ROW: PERFECT HORIZONTAL ALIGNMENT */
-    section[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"]:has(.warehouse-inline-badge) {
+    /* WAREHOUSE SELECTOR SINGLE-CONTAINER ROW: 100% PERFECT HORIZONTAL & VERTICAL ALIGNMENT */
+    section[data-testid="stSidebar"] div[data-testid="stSelectbox"] {
         display: flex !important;
         flex-direction: row !important;
-        flex-wrap: nowrap !important;
         align-items: center !important;
         justify-content: space-between !important;
-        gap: 8px !important;
-        margin-top: 2px !important;
-        margin-bottom: 8px !important;
+        gap: 10px !important;
+        margin-top: 4px !important;
+        margin-bottom: 10px !important;
         width: 100% !important;
     }
-    section[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"]:has(.warehouse-inline-badge) > div[data-testid="column"] {
-        min-width: 0 !important;
-        width: auto !important;
-        display: flex !important;
+
+    section[data-testid="stSidebar"] div[data-testid="stSelectbox"] label[data-testid="stWidgetLabel"] {
+        display: inline-flex !important;
         align-items: center !important;
-    }
-    section[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"]:has(.warehouse-inline-badge) > div[data-testid="column"]:first-child {
+        margin: 0 !important;
+        padding: 0 !important;
+        min-height: unset !important;
+        height: auto !important;
         flex: 0 0 auto !important;
         white-space: nowrap !important;
     }
-    section[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"]:has(.warehouse-inline-badge) > div[data-testid="column"]:last-child {
-        flex: 1 1 auto !important;
-        min-width: 120px !important;
-    }
-    section[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"]:has(.warehouse-inline-badge) div[data-testid="stSelectbox"] {
-        margin: 0 !important;
-        padding: 0 !important;
-        width: 100% !important;
-    }
-    section[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"]:has(.warehouse-inline-badge) div[data-testid="stSelectbox"] > div {
-        margin: 0 !important;
-        padding: 0 !important;
-    }
-    section[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"]:has(.warehouse-inline-badge) div[data-baseweb="select"] {
-        border-radius: 8px !important;
-        background-color: #152238 !important;
-        border: 1px solid rgba(51, 65, 85, 0.7) !important;
-        min-height: 34px !important;
-        height: 34px !important;
-        box-sizing: border-box !important;
-        transition: all 0.25s ease !important;
-    }
-    section[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"]:has(.warehouse-inline-badge) div[data-baseweb="select"]:hover {
-        border-color: #38bdf8 !important;
-        box-shadow: 0 0 10px rgba(56, 189, 248, 0.25) !important;
-    }
-    section[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"]:has(.warehouse-inline-badge) div[data-baseweb="select"] > div {
-        min-height: 34px !important;
-        height: 34px !important;
-        padding-top: 0 !important;
-        padding-bottom: 0 !important;
-        padding-left: 8px !important;
-        padding-right: 6px !important;
-        display: flex !important;
-        align-items: center !important;
-    }
-    section[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"]:has(.warehouse-inline-badge) div[data-baseweb="select"] * {
-        color: #f1f5f9 !important;
-        font-weight: 600 !important;
-        font-size: 13px !important;
+
+    section[data-testid="stSidebar"] div[data-testid="stSelectbox"] label[data-testid="stWidgetLabel"]::before {
+        content: "" !important;
+        display: inline-block !important;
+        width: 7px !important;
+        height: 7px !important;
+        border-radius: 50% !important;
+        background-color: #10b981 !important;
+        box-shadow: 0 0 8px rgba(16, 185, 129, 0.8) !important;
+        margin-right: 7px !important;
+        flex-shrink: 0 !important;
+        animation: statusPulse 2s infinite alternate ease-in-out !important;
     }
 
-    .warehouse-inline-badge {
-        display: flex !important;
-        align-items: center !important;
-        gap: 6px !important;
-        white-space: nowrap !important;
-        height: 34px !important;
-        line-height: 34px !important;
-        margin: 0 !important;
-        padding: 0 !important;
-    }
-    .warehouse-inline-label {
+    section[data-testid="stSidebar"] div[data-testid="stSelectbox"] label[data-testid="stWidgetLabel"] div[data-testid="stMarkdownContainer"],
+    section[data-testid="stSidebar"] div[data-testid="stSelectbox"] label[data-testid="stWidgetLabel"] p {
         font-size: 11.5px !important;
         font-weight: 700 !important;
         color: #94a3b8 !important;
         letter-spacing: 0.5px !important;
         text-transform: uppercase !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        line-height: 1 !important;
         display: inline-block !important;
         vertical-align: middle !important;
     }
-    .wh-status-dot {
-        width: 7px !important;
-        height: 7px !important;
-        border-radius: 50% !important;
-        background: #10b981 !important;
-        display: inline-block !important;
-        box-shadow: 0 0 8px rgba(16, 185, 129, 0.8) !important;
-        animation: statusPulse 2s infinite alternate ease-in-out !important;
-        flex-shrink: 0 !important;
+
+    section[data-testid="stSidebar"] div[data-testid="stSelectbox"] div[data-baseweb="select"] {
+        flex: 1 1 0 !important;
+        min-width: 120px !important;
+        border-radius: 8px !important;
+        background-color: #152238 !important;
+        border: 1px solid rgba(51, 65, 85, 0.7) !important;
+        min-height: 36px !important;
+        height: 36px !important;
+        box-sizing: border-box !important;
+        transition: all 0.25s ease !important;
+    }
+
+    section[data-testid="stSidebar"] div[data-testid="stSelectbox"] div[data-baseweb="select"]:hover {
+        border-color: #38bdf8 !important;
+        box-shadow: 0 0 10px rgba(56, 189, 248, 0.25) !important;
+    }
+
+    section[data-testid="stSidebar"] div[data-testid="stSelectbox"] div[data-baseweb="select"] > div {
+        min-height: 36px !important;
+        height: 36px !important;
+        padding-top: 0 !important;
+        padding-bottom: 0 !important;
+        padding-left: 10px !important;
+        padding-right: 8px !important;
+        display: flex !important;
+        align-items: center !important;
+    }
+
+    section[data-testid="stSidebar"] div[data-testid="stSelectbox"] div[data-baseweb="select"] * {
+        color: #f1f5f9 !important;
+        font-weight: 600 !important;
+        font-size: 13px !important;
     }
 
     /* NATIVE SIDEBAR BUTTONS: SMOOTH ANIMATIONS & HOVER */
@@ -3700,27 +3690,18 @@ def main():
         </div>
         """, unsafe_allow_html=True)
 
-        # Dropdown chọn kho cùng hàng với text KHO VẬN HÀNH
-        col_wh_txt, col_wh_drop = st.columns([1.0, 1.3], gap="small", vertical_alignment="center")
-        with col_wh_txt:
-            st.markdown(f"""
-            <div class="warehouse-inline-badge">
-                <span class="wh-status-dot"></span>
-                <span class="warehouse-inline-label">{t['lbl_select_warehouse']}</span>
-            </div>
-            """, unsafe_allow_html=True)
-        with col_wh_drop:
-            warehouse_options = ["SGN-SM-1-VN"]
-            if "selected_warehouse" not in st.session_state:
-                st.session_state.selected_warehouse = "SGN-SM-1-VN"
+        # Dropdown chọn kho cùng hàng với text KHO VẬN HÀNH (Single-container flexbox)
+        warehouse_options = ["SGN-SM-1-VN"]
+        if "selected_warehouse" not in st.session_state:
+            st.session_state.selected_warehouse = "SGN-SM-1-VN"
 
-            selected_wh = st.selectbox(
-                label=t["lbl_select_warehouse"],
-                options=warehouse_options,
-                index=0,
-                key="warehouse_selector",
-                label_visibility="collapsed"
-            )
+        selected_wh = st.selectbox(
+            label=t["lbl_select_warehouse"],
+            options=warehouse_options,
+            index=0,
+            key="warehouse_selector",
+            label_visibility="visible"
+        )
 
         st.markdown(f'<div class="sidebar-section-title">{t["stages_header"]}</div>', unsafe_allow_html=True)
 
