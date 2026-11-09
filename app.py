@@ -1430,15 +1430,15 @@ def fetch_stage_data(stage_key: str, cache_version: float = 0.0):
 
 
 # Bảng benchmark UPH theo từng Thứ trong tuần (DOW)
-# 2C Pack UPH được hiệu chỉnh ~45 orders/h để định biên packing đạt trung bình 2x người
+# 2C Pack UPH được hiệu chỉnh 50.0 orders/h theo yêu cầu vận hành
 DOW_BENCHMARK_UPH = {
-    1: {"pick_uph": 81.0, "pack_uph": 45.0},  # CN: 7,127 orders -> 11 pick, 20 pack
-    2: {"pick_uph": 86.9, "pack_uph": 45.0},  # T2: 12,510 orders -> 18 pick, 35 pack
-    3: {"pick_uph": 56.4, "pack_uph": 44.0},  # T3: 7,667 orders -> 17 pick, 22 pack
-    4: {"pick_uph": 53.5, "pack_uph": 45.0},  # T4: 8,533 orders -> 20 pick, 24 pack
-    5: {"pick_uph": 72.2, "pack_uph": 47.0},  # T5: 8,659 orders -> 15 pick, 23 pack
-    6: {"pick_uph": 57.0, "pack_uph": 45.0},  # T6: 8,166 orders -> 18 pick, 23 pack
-    7: {"pick_uph": 55.0, "pack_uph": 43.0},  # T7: 7,475 orders -> 17 pick, 22 pack
+    1: {"pick_uph": 81.0, "pack_uph": 50.0},  # CN
+    2: {"pick_uph": 86.9, "pack_uph": 50.0},  # T2
+    3: {"pick_uph": 56.4, "pack_uph": 50.0},  # T3
+    4: {"pick_uph": 53.5, "pack_uph": 50.0},  # T4
+    5: {"pick_uph": 72.2, "pack_uph": 50.0},  # T5
+    6: {"pick_uph": 57.0, "pack_uph": 50.0},  # T6
+    7: {"pick_uph": 55.0, "pack_uph": 50.0},  # T7
 }
 
 
@@ -2856,7 +2856,7 @@ def render_headcount_planning(cust_type: str, cust_name: str, start_date: dateti
         daily_total_2c_ords_fc.append(day_tot_2c_fc_o)
 
         # Tính toán định biên Pick & Pack 2C
-        uph_cfg = DOW_BENCHMARK_UPH.get(dow, {"pick_uph": 55.0, "pack_uph": 45.0})
+        uph_cfg = DOW_BENCHMARK_UPH.get(dow, {"pick_uph": 55.0, "pack_uph": 50.0})
         pick_hc = math.ceil(ord_for_hc / (uph_cfg["pick_uph"] * 8.0)) if ord_for_hc > 0 else 0
         pack_hc = math.ceil(ord_for_hc / (uph_cfg["pack_uph"] * 8.0)) if ord_for_hc > 0 else 0
         daily_pick_2c.append(pick_hc)
