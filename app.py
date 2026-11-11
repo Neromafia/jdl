@@ -251,6 +251,9 @@ TRANSLATIONS = {
         "lbl_select_warehouse": "Kho vận hành:",
         "stages_header": "CÁC KHÂU VẬN HÀNH",
         "date_range_header": "KHOẢNG THỜI GIAN ĐỐI SOÁT",
+        "time_from_header": "TỪ GIỜ",
+        "time_to_header": "ĐẾN GIỜ",
+        "time_range_header": "KHUNG GIỜ",
         "date_range_label": "Chọn khoảng thời gian (Từ ngày - Đến ngày):",
         "btn_today": "Hôm nay",
         "btn_30d": "30 ngày gần đây",
@@ -488,6 +491,9 @@ TRANSLATIONS = {
         "lbl_select_warehouse": "运营仓库：",
         "stages_header": "仓储作业环节",
         "date_range_header": "对账统计周期",
+        "time_from_header": "起始时段",
+        "time_to_header": "截止时段",
+        "time_range_header": "作业时段",
         "date_range_label": "选择统计区间（起始日期 - 截止日期）：",
         "btn_today": "今日",
         "btn_30d": "近30天",
@@ -1658,11 +1664,14 @@ def filter_by_customer(df: pd.DataFrame, cust_type: str, cust_name: str) -> pd.D
     return res
 
 
-def filter_by_date_range(df: pd.DataFrame, start_date: datetime.date, end_date: datetime.date) -> pd.DataFrame:
-    """Lọc dữ liệu theo khoảng thời gian start và end."""
+def filter_by_date_range(df: pd.DataFrame, start_date: datetime.date, end_date: datetime.date, start_hour: int = 0, end_hour: int = 23) -> pd.DataFrame:
+    """Lọc dữ liệu theo khoảng thời gian start_date -> end_date và start_hour -> end_hour."""
     if df.empty or 'op_date' not in df.columns:
         return df
-    return df[(df['op_date'] >= start_date) & (df['op_date'] <= end_date)].copy()
+    res = df[(df['op_date'] >= start_date) & (df['op_date'] <= end_date)]
+    if 'op_hour' in res.columns and (start_hour > 0 or end_hour < 23):
+        res = res[(res['op_hour'] >= start_hour) & (res['op_hour'] <= end_hour)]
+    return res.copy()
 
 
 
@@ -1730,10 +1739,15 @@ def fetch_hourly_worker_data(stage_key: str, start_date: datetime.date, end_date
 # ==========================================
 # TAB 1: NGÀY (REAL-TIME & HOURLY BREAKDOWN)
 # ==========================================
-def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_date: datetime.date, cfg: dict, stage_key: str, selected_cust_type: str, selected_cust_name: str, t: dict, lang: str):
+def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_date: datetime.date, cfg: dict, stage_key: str, selected_cust_type: str, selected_cust_name: str, t: dict, lang: str, start_time: datetime.time = datetime.time(0, 0), end_time: datetime.time = datetime.time(23, 59)):
     st.markdown(f'<div class="section-title">{t["sec_hourly"]}</div>', unsafe_allow_html=True)
 
-    df_range = filter_by_date_range(df_filtered, start_date, end_date)
+    start_hour = start_time.hour
+    end_hour = end_time.hour
+    if start_hour > end_hour:
+        start_hour, end_hour = end_hour, start_hour
+
+    df_range = filter_by_date_range(df_filtered, start_date, end_date, start_hour, end_hour)
 
     tot_qty = df_range['total_qty'].sum() if not df_range.empty else 0.0
     tot_orders = df_range['total_orders'].sum() if not df_range.empty else 0
@@ -1951,8 +1965,9 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
     fmt_d1 = start_date.strftime('%d/%m/%Y') if lang == "VN" else start_date.strftime('%Y-%m-%d')
     fmt_d2 = end_date.strftime('%d/%m/%Y') if lang == "VN" else end_date.strftime('%Y-%m-%d')
     date_range_label = fmt_d1 if start_date == end_date else f"{fmt_d1} — {fmt_d2}"
+    time_range_label = f" ({start_time.strftime('%H:%M')} — {end_time.strftime('%H:%M')})"
 
-    st.markdown(f'<div class="chart-title-banner">{t["lbl_dynamic_table"]} — {date_range_label}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="chart-title-banner">{t["lbl_dynamic_table"]} — {date_range_label}{time_range_label}</div>', unsafe_allow_html=True)
 
     pivot_cust = df_range.pivot_table(
         index='owner_name',
@@ -1961,12 +1976,15 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
         aggfunc='sum',
         fill_value=0
     )
-    # Chỉ giữ các khung giờ có phát sinh dữ liệu (sum > 0), ẩn các khung giờ không có số liệu
     raw_hour_cols = [c for c in pivot_cust.columns if isinstance(c, (int, float, np.integer)) or str(c).isdigit()]
     active_hours = sorted([int(h) for h in raw_hour_cols if pivot_cust[h].sum() > 0])
 
     if active_hours:
-        pivot_cust = pivot_cust[active_hours]
+        min_display_hour = min(active_hours) if start_hour == 0 else start_hour
+        max_display_hour = max(max(active_hours), end_hour)
+        display_hours = list(range(min_display_hour, max_display_hour + 1))
+
+        pivot_cust = pivot_cust.reindex(columns=display_hours, fill_value=0)
         pivot_cust[t['lbl_total_column']] = pivot_cust.sum(axis=1)
         pivot_cust = pivot_cust.sort_values(t['lbl_total_column'], ascending=False)
 
@@ -1974,7 +1992,7 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
         total_row.name = t['lbl_total_row']
         pivot_cust_with_total = pd.concat([pivot_cust, pd.DataFrame([total_row])])
 
-        rename_cols = {h: f"{h:02d}:00" for h in active_hours}
+        rename_cols = {h: f"{h:02d}:00" for h in display_hours}
         display_cust_pivot = pivot_cust_with_total.rename(columns=rename_cols).reset_index()
         display_cust_pivot.rename(columns={'index': t['lbl_customer_col']}, inplace=True)
 
@@ -1993,7 +2011,7 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
             st.download_button(
                 label=t['btn_download_hourly'],
                 data=csv_bytes,
-                file_name=f"hourly_customers_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}.csv",
+                file_name=f"hourly_customers_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}_{start_hour:02d}h_{end_hour:02d}h.csv",
                 mime="text/csv",
                 use_container_width=True,
                 key=f"btn_dl_hourly_cust_{stage_key}"
@@ -2004,7 +2022,7 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
     # 4. BẢNG SẢN LƯỢNG THEO TỪNG KHUNG GIỜ THEO NHÂN VIÊN (Áp dụng cho Nhặt hàng & Đóng gói)
     if cfg.get("table") in ["fact_picking", "fact_packing"]:
         st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown(f'<div class="chart-title-banner">{t["sec_hourly_staff"]} — {date_range_label}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="chart-title-banner">{t["sec_hourly_staff"]} — {date_range_label}{time_range_label}</div>', unsafe_allow_html=True)
 
         sync_st = get_global_sync_state()
         cur_v = sync_st.get("data_version", 0.0)
@@ -2012,6 +2030,8 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
             df_workers_raw = fetch_hourly_worker_data(stage_key, start_date, end_date, cache_version=cur_v)
 
         df_workers = filter_by_customer(df_workers_raw, selected_cust_type, selected_cust_name)
+        if not df_workers.empty and 'op_hour' in df_workers.columns and (start_hour > 0 or end_hour < 23):
+            df_workers = df_workers[(df_workers['op_hour'] >= start_hour) & (df_workers['op_hour'] <= end_hour)]
 
         if not df_workers.empty:
             pivot_worker = df_workers.pivot_table(
@@ -2025,7 +2045,11 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
             active_worker_hours = sorted([int(h) for h in raw_worker_hours if pivot_worker[h].sum() > 0])
 
             if active_worker_hours:
-                pivot_worker = pivot_worker[active_worker_hours]
+                min_worker_hour = min(active_worker_hours) if start_hour == 0 else start_hour
+                max_worker_hour = max(max(active_worker_hours), end_hour)
+                display_worker_hours = list(range(min_worker_hour, max_worker_hour + 1))
+
+                pivot_worker = pivot_worker.reindex(columns=display_worker_hours, fill_value=0)
                 pivot_worker[t['lbl_total_column']] = pivot_worker.sum(axis=1)
                 pivot_worker = pivot_worker.sort_values(t['lbl_total_column'], ascending=False)
 
@@ -2033,7 +2057,7 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
                 worker_total_row.name = t['lbl_total_row']
                 pivot_worker_with_total = pd.concat([pivot_worker, pd.DataFrame([worker_total_row])])
 
-                rename_cols_worker = {h: f"{h:02d}:00" for h in active_worker_hours}
+                rename_cols_worker = {h: f"{h:02d}:00" for h in display_worker_hours}
                 display_worker_pivot = pivot_worker_with_total.rename(columns=rename_cols_worker).reset_index()
                 display_worker_pivot.rename(columns={'index': t['col_worker']}, inplace=True)
 
@@ -2052,7 +2076,7 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
                     st.download_button(
                         label=t['btn_download_staff_hourly'],
                         data=csv_worker_bytes,
-                        file_name=f"hourly_staff_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}.csv",
+                        file_name=f"hourly_staff_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}_{start_hour:02d}h_{end_hour:02d}h.csv",
                         mime="text/csv",
                         use_container_width=True,
                         key=f"btn_dl_hourly_staff_{stage_key}"
@@ -3172,18 +3196,23 @@ def render_headcount_planning(cust_type: str, cust_name: str, start_date: dateti
 # ==========================================
 # KHÂU TỔNG HỢP (PIPELINE SUMMARY)
 # ==========================================
-def render_pipeline_summary(cust_type: str, cust_name: str, start_date: datetime.date, end_date: datetime.date, t: dict, lang: str):
+def render_pipeline_summary(cust_type: str, cust_name: str, start_date: datetime.date, end_date: datetime.date, t: dict, lang: str, start_time: datetime.time = datetime.time(0, 0), end_time: datetime.time = datetime.time(23, 59)):
     st.markdown(f'<div class="section-title">{t["sec_pipeline"]}</div>', unsafe_allow_html=True)
     
     sync_st = get_global_sync_state()
     cur_v = sync_st.get("data_version", 0.0)
+
+    start_hour = start_time.hour
+    end_hour = end_time.hour
+    if start_hour > end_hour:
+        start_hour, end_hour = end_hour, start_hour
 
     # 1. Fetch và tính toán dữ liệu các khâu trọng tâm (Skip khâu Lên Kệ theo yêu cầu)
     # Khâu NHẬP HÀNG (Purchase Inbound)
     df_rec = pd.DataFrame()
     try:
         raw_rec = fetch_stage_data("NHẬP HÀNG", cache_version=cur_v)
-        df_rec = filter_by_date_range(filter_by_customer(raw_rec, cust_type, cust_name), start_date, end_date)
+        df_rec = filter_by_date_range(filter_by_customer(raw_rec, cust_type, cust_name), start_date, end_date, start_hour, end_hour)
     except Exception:
         pass
     rec_orders = int(df_rec['total_orders'].sum()) if not df_rec.empty else 0
@@ -3193,7 +3222,7 @@ def render_pipeline_summary(cust_type: str, cust_name: str, start_date: datetime
     df_ret = pd.DataFrame()
     try:
         raw_ret = fetch_stage_data("HOÀN TRẢ", cache_version=cur_v)
-        df_ret = filter_by_date_range(filter_by_customer(raw_ret, cust_type, cust_name), start_date, end_date)
+        df_ret = filter_by_date_range(filter_by_customer(raw_ret, cust_type, cust_name), start_date, end_date, start_hour, end_hour)
     except Exception:
         pass
     ret_orders = int(df_ret['total_orders'].sum()) if not df_ret.empty else 0
@@ -3206,6 +3235,9 @@ def render_pipeline_summary(cust_type: str, cust_name: str, start_date: datetime
         if not raw_inv.empty:
             df_inv = filter_by_customer(raw_inv, cust_type, cust_name)
             df_inv = df_inv[(df_inv['inv_date'] >= start_date) & (df_inv['inv_date'] <= end_date)]
+            if (start_hour > 0 or end_hour < 23) and 'inventory_time' in df_inv.columns:
+                inv_h = pd.to_datetime(df_inv['inventory_time']).dt.hour
+                df_inv = df_inv[(inv_h >= start_hour) & (inv_h <= end_hour)]
     except Exception:
         pass
     inv_diff_qty = int(df_inv['difference_qty'].sum()) if not df_inv.empty else 0
@@ -3217,7 +3249,7 @@ def render_pipeline_summary(cust_type: str, cust_name: str, start_date: datetime
     df_pick = pd.DataFrame()
     try:
         raw_pick = fetch_stage_data("NHẶT HÀNG", cache_version=cur_v)
-        df_pick = filter_by_date_range(filter_by_customer(raw_pick, cust_type, cust_name), start_date, end_date)
+        df_pick = filter_by_date_range(filter_by_customer(raw_pick, cust_type, cust_name), start_date, end_date, start_hour, end_hour)
     except Exception:
         pass
     pick_orders = int(df_pick['total_orders'].sum()) if not df_pick.empty else 0
@@ -3227,7 +3259,7 @@ def render_pipeline_summary(cust_type: str, cust_name: str, start_date: datetime
     df_pack = pd.DataFrame()
     try:
         raw_pack = fetch_stage_data("ĐÓNG GÓI", cache_version=cur_v)
-        df_pack = filter_by_date_range(filter_by_customer(raw_pack, cust_type, cust_name), start_date, end_date)
+        df_pack = filter_by_date_range(filter_by_customer(raw_pack, cust_type, cust_name), start_date, end_date, start_hour, end_hour)
     except Exception:
         pass
     pack_orders = int(df_pack['total_orders'].sum()) if not df_pack.empty else 0
@@ -3237,7 +3269,7 @@ def render_pipeline_summary(cust_type: str, cust_name: str, start_date: datetime
     df_hnd = pd.DataFrame()
     try:
         raw_hnd = fetch_stage_data("BÀN GIAO", cache_version=cur_v)
-        df_hnd = filter_by_date_range(filter_by_customer(raw_hnd, cust_type, cust_name), start_date, end_date)
+        df_hnd = filter_by_date_range(filter_by_customer(raw_hnd, cust_type, cust_name), start_date, end_date, start_hour, end_hour)
     except Exception:
         pass
     hnd_orders = int(df_hnd['total_orders'].sum()) if not df_hnd.empty else 0
@@ -3483,7 +3515,7 @@ def render_pipeline_summary(cust_type: str, cust_name: str, start_date: datetime
 
 
 
-def render_inventory_dashboard(df_inventory: pd.DataFrame, cust_type: str, cust_name: str, start_date: datetime.date, end_date: datetime.date, t: dict, lang: str):
+def render_inventory_dashboard(df_inventory: pd.DataFrame, cust_type: str, cust_name: str, start_date: datetime.date, end_date: datetime.date, t: dict, lang: str, start_time: datetime.time = datetime.time(0, 0), end_time: datetime.time = datetime.time(23, 59)):
     """
     Dashboard chuyên biệt cho khâu TRONG KHO (Kiểm kê & Đối soát tồn kho):
     - Đếm số nhiệm vụ kiểm kê (Task NO) mỗi ngày
@@ -3500,6 +3532,13 @@ def render_inventory_dashboard(df_inventory: pd.DataFrame, cust_type: str, cust_
 
     # 1. Lọc theo khoảng thời gian đối soát
     df = df[(df['inv_date'] >= start_date) & (df['inv_date'] <= end_date)]
+    start_hour = start_time.hour
+    end_hour = end_time.hour
+    if start_hour > end_hour:
+        start_hour, end_hour = end_hour, start_hour
+    if (start_hour > 0 or end_hour < 23) and 'inventory_time' in df.columns:
+        inv_hours = pd.to_datetime(df['inventory_time']).dt.hour
+        df = df[(inv_hours >= start_hour) & (inv_hours <= end_hour)]
 
     # 2. Lọc theo loại khách hàng
     if cust_type and cust_type != t["all_option"]:
@@ -3931,12 +3970,12 @@ def render_sidebar_sync_status_fragment(t):
     """, unsafe_allow_html=True)
 
 @st.fragment(run_every="15s")
-def render_day_tab_fragment(stage_key, start_date, end_date, cur_cfg, selected_cust_type, selected_cust_name, t, lang):
+def render_day_tab_fragment(stage_key, start_date, end_date, cur_cfg, selected_cust_type, selected_cust_name, t, lang, start_time=datetime.time(0, 0), end_time=datetime.time(23, 59)):
     sync_st = get_global_sync_state()
     cur_v = sync_st.get("data_version", 0.0)
     df_raw = fetch_stage_data(stage_key, cache_version=cur_v)
     df_filtered = filter_by_customer(df_raw, selected_cust_type, selected_cust_name)
-    render_day_tab(df_filtered, start_date, end_date, cur_cfg, stage_key, selected_cust_type, selected_cust_name, t, lang)
+    render_day_tab(df_filtered, start_date, end_date, cur_cfg, stage_key, selected_cust_type, selected_cust_name, t, lang, start_time, end_time)
 
 @st.fragment(run_every="30s")
 def render_week_tab_fragment(stage_key, cur_cfg, selected_cust_type, selected_cust_name, t, lang):
@@ -3955,15 +3994,15 @@ def render_month_tab_fragment(stage_key, cur_cfg, selected_cust_type, selected_c
     render_month_tab(df_filtered, cur_cfg, t, lang)
 
 @st.fragment(run_every="15s")
-def render_inventory_fragment(selected_cust_type, selected_cust_name, start_date, end_date, t, lang):
+def render_inventory_fragment(selected_cust_type, selected_cust_name, start_date, end_date, t, lang, start_time=datetime.time(0, 0), end_time=datetime.time(23, 59)):
     sync_st = get_global_sync_state()
     cur_v = sync_st.get("data_version", 0.0)
     df_inv = fetch_inventory_data(cache_version=cur_v)
-    render_inventory_dashboard(df_inv, selected_cust_type, selected_cust_name, start_date, end_date, t, lang)
+    render_inventory_dashboard(df_inv, selected_cust_type, selected_cust_name, start_date, end_date, t, lang, start_time, end_time)
 
 @st.fragment(run_every="20s")
-def render_summary_fragment(selected_cust_type, selected_cust_name, start_date, end_date, t, lang):
-    render_pipeline_summary(selected_cust_type, selected_cust_name, start_date, end_date, t, lang)
+def render_summary_fragment(selected_cust_type, selected_cust_name, start_date, end_date, t, lang, start_time=datetime.time(0, 0), end_time=datetime.time(23, 59)):
+    render_pipeline_summary(selected_cust_type, selected_cust_name, start_date, end_date, t, lang, start_time, end_time)
 
 @st.fragment(run_every="30s")
 def render_planning_fragment(selected_cust_type, selected_cust_name, start_date, end_date, t, lang):
@@ -4103,9 +4142,13 @@ def main():
     cur_stage_name = cur_cfg[f'name_{lang.lower()}'].upper()
     cur_stage_title = cur_cfg[f'title_{lang.lower()}']
 
-    # Khởi tạo ngày mặc định nếu chưa có (mặc định là hôm nay)
+    # Khởi tạo ngày và khung giờ mặc định nếu chưa có (mặc định là hôm nay, từ 00:00 đến 23:59)
     if "date_range_val" not in st.session_state:
         st.session_state.date_range_val = (today_vn, today_vn)
+    if "time_from_val" not in st.session_state:
+        st.session_state.time_from_val = datetime.time(0, 0)
+    if "time_to_val" not in st.session_state:
+        st.session_state.time_to_val = datetime.time(23, 59)
 
     # 1. Tiêu đề khâu vận hành nằm phía trên
     st.markdown(f'<div style="font-size: 22px; font-weight: 800; color: #ffffff; letter-spacing: 0.5px; margin: 4px 0 14px 0;">{cur_stage_title}</div>', unsafe_allow_html=True)
@@ -4114,10 +4157,11 @@ def main():
         selected_cust_type = t["all_option"]
         selected_cust_name = t["all_option"]
         start_date, end_date = st.session_state.date_range_val
+        start_time, end_time = datetime.time(0, 0), datetime.time(23, 59)
         df_filtered = df_raw
     else:
-        # 2. Bộ lọc khách hàng và Khoảng thời gian đối soát nằm bên phải (tinh gọn, loại bỏ nút làm mới)
-        col_filter_type, col_filter_name, col_date_range = st.columns([1.0, 1.5, 1.5])
+        # 2. Bộ lọc khách hàng, Khoảng ngày và Khung giờ đối soát (Mặc định 00:00 đến 23:59)
+        col_filter_type, col_filter_name, col_date_range, col_time_from, col_time_to = st.columns([1.0, 1.3, 1.4, 0.85, 0.85])
         
         with col_filter_type:
             st.markdown("<div style='margin-top: 4px;'>", unsafe_allow_html=True)
@@ -4177,6 +4221,33 @@ def main():
             st.session_state.date_range_val = (start_date, end_date)
             st.markdown("</div>", unsafe_allow_html=True)
 
+        with col_time_from:
+            st.markdown("<div style='margin-top: 4px;'>", unsafe_allow_html=True)
+            time_from_res = st.time_input(
+                t['time_from_header'],
+                value=st.session_state.get('time_from_val', datetime.time(0, 0)),
+                key="main_time_from_picker",
+                step=1800
+            )
+            st.session_state.time_from_val = time_from_res
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        with col_time_to:
+            st.markdown("<div style='margin-top: 4px;'>", unsafe_allow_html=True)
+            time_to_res = st.time_input(
+                t['time_to_header'],
+                value=st.session_state.get('time_to_val', datetime.time(23, 59)),
+                key="main_time_to_picker",
+                step=1800
+            )
+            st.session_state.time_to_val = time_to_res
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        start_time = st.session_state.time_from_val
+        end_time = st.session_state.time_to_val
+        if start_time > end_time:
+            start_time, end_time = end_time, start_time
+
         df_filtered = filter_by_customer(df_raw, selected_cust_type, selected_cust_name)
 
     # ==========================================
@@ -4185,9 +4256,9 @@ def main():
     if cur_cfg.get("type") in ["planning", "backlog"]:
         render_planning_fragment(selected_cust_type, selected_cust_name, start_date, end_date, t, lang)
     elif cur_cfg.get("type") == "summary":
-        render_summary_fragment(selected_cust_type, selected_cust_name, start_date, end_date, t, lang)
+        render_summary_fragment(selected_cust_type, selected_cust_name, start_date, end_date, t, lang, start_time, end_time)
     elif cur_cfg.get("type") == "inventory":
-        render_inventory_fragment(selected_cust_type, selected_cust_name, start_date, end_date, t, lang)
+        render_inventory_fragment(selected_cust_type, selected_cust_name, start_date, end_date, t, lang, start_time, end_time)
     else:
         tab_day, tab_week, tab_month = st.tabs([
             t['tab_day'],
@@ -4196,7 +4267,7 @@ def main():
         ])
 
         with tab_day:
-            render_day_tab_fragment(selected_key, start_date, end_date, cur_cfg, selected_cust_type, selected_cust_name, t, lang)
+            render_day_tab_fragment(selected_key, start_date, end_date, cur_cfg, selected_cust_type, selected_cust_name, t, lang, start_time, end_time)
 
         with tab_week:
             render_week_tab_fragment(selected_key, cur_cfg, selected_cust_type, selected_cust_name, t, lang)
