@@ -4287,6 +4287,7 @@ def main():
                 </div>
                 """, unsafe_allow_html=True)
                 
+                dt_ver = st.session_state.get('wms_dt_ver', 0)
                 col_p_from, col_p_to = st.columns(2)
                 with col_p_from:
                     st.markdown(f"<div style='font-size: 12px; font-weight: 700; color: #94a3b8; text-transform: uppercase; margin-bottom: 4px;'>{t['lbl_from_header']}</div>", unsafe_allow_html=True)
@@ -4294,13 +4295,13 @@ def main():
                         "Ngày bắt đầu",
                         value=st.session_state.wms_d_from,
                         max_value=today_vn + timedelta(days=1),
-                        key="wms_pop_d_start",
+                        key=f"wms_pop_d_start_{dt_ver}",
                         label_visibility="collapsed"
                     )
                     pop_t_start = st.time_input(
                         "Giờ bắt đầu",
                         value=st.session_state.wms_t_from,
-                        key="wms_pop_t_start",
+                        key=f"wms_pop_t_start_{dt_ver}",
                         step=1800,
                         label_visibility="collapsed"
                     )
@@ -4310,29 +4311,30 @@ def main():
                         "Ngày kết thúc",
                         value=st.session_state.wms_d_to,
                         max_value=today_vn + timedelta(days=1),
-                        key="wms_pop_d_end",
+                        key=f"wms_pop_d_end_{dt_ver}",
                         label_visibility="collapsed"
                     )
                     pop_t_end = st.time_input(
                         "Giờ kết thúc",
                         value=st.session_state.wms_t_to,
-                        key="wms_pop_t_end",
+                        key=f"wms_pop_t_end_{dt_ver}",
                         step=1800,
                         label_visibility="collapsed"
                     )
 
                 def apply_preset(d_from, d_to, t_from, t_to):
+                    if d_from > d_to:
+                        d_from, d_to = d_to, d_from
+                    if d_from == d_to and t_from > t_to:
+                        t_from, t_to = t_to, t_from
                     st.session_state.wms_d_from = d_from
                     st.session_state.wms_d_to = d_to
                     st.session_state.wms_t_from = t_from
                     st.session_state.wms_t_to = t_to
-                    st.session_state.wms_pop_d_start = d_from
-                    st.session_state.wms_pop_d_end = d_to
-                    st.session_state.wms_pop_t_start = t_from
-                    st.session_state.wms_pop_t_end = t_to
                     st.session_state.date_range_val = (d_from, d_to)
                     st.session_state.time_from_val = t_from
                     st.session_state.time_to_val = t_to
+                    st.session_state.wms_dt_ver = st.session_state.get('wms_dt_ver', 0) + 1
                     st.rerun()
 
                 # Nút chọn nhanh (Quick Presets)
@@ -4364,25 +4366,12 @@ def main():
                         apply_preset(today_vn, today_vn, datetime.time(0, 0), datetime.time(23, 59))
                 with b_ok:
                     if st.button("OK / Xác nhận" if lang == "VN" else "确定", type="primary", use_container_width=True, key="pop_action_ok"):
-                        if pop_d_start > pop_d_end:
-                            pop_d_start, pop_d_end = pop_d_end, pop_d_start
-                        if pop_d_start == pop_d_end and pop_t_start > pop_t_end:
-                            pop_t_start, pop_t_end = pop_t_end, pop_t_start
                         apply_preset(pop_d_start, pop_d_end, pop_t_start, pop_t_end)
 
                 # Tự động cập nhật nếu thay đổi trực tiếp từ date/time input
                 if (pop_d_start != st.session_state.wms_d_from or pop_d_end != st.session_state.wms_d_to or 
                     pop_t_start != st.session_state.wms_t_from or pop_t_end != st.session_state.wms_t_to):
-                    if pop_d_start > pop_d_end:
-                        pop_d_start, pop_d_end = pop_d_end, pop_d_start
-                    st.session_state.wms_d_from = pop_d_start
-                    st.session_state.wms_d_to = pop_d_end
-                    st.session_state.wms_t_from = pop_t_start
-                    st.session_state.wms_t_to = pop_t_end
-                    st.session_state.date_range_val = (pop_d_start, pop_d_end)
-                    st.session_state.time_from_val = pop_t_start
-                    st.session_state.time_to_val = pop_t_end
-                    st.rerun()
+                    apply_preset(pop_d_start, pop_d_end, pop_t_start, pop_t_end)
 
         start_date = st.session_state.wms_d_from
         end_date = st.session_state.wms_d_to
