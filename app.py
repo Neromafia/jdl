@@ -254,6 +254,9 @@ TRANSLATIONS = {
         "time_from_header": "TỪ GIỜ",
         "time_to_header": "ĐẾN GIỜ",
         "time_range_header": "KHUNG GIỜ",
+        "lbl_from_header": "TỪ (BẮT ĐẦU)",
+        "lbl_to_header": "ĐẾN (KẾT THÚC)",
+        "lbl_quick_presets": "CHỌN NHANH KHOẢNG THỜI GIAN (PRESETS):",
         "date_range_label": "Chọn khoảng thời gian (Từ ngày - Đến ngày):",
         "btn_today": "Hôm nay",
         "btn_30d": "30 ngày gần đây",
@@ -494,6 +497,9 @@ TRANSLATIONS = {
         "time_from_header": "起始时段",
         "time_to_header": "截止时段",
         "time_range_header": "作业时段",
+        "lbl_from_header": "起始 (FROM)",
+        "lbl_to_header": "截止 (TO)",
+        "lbl_quick_presets": "快捷时段预设 (PRESETS):",
         "date_range_label": "选择统计区间（起始日期 - 截止日期）：",
         "btn_today": "今日",
         "btn_30d": "近30天",
@@ -919,6 +925,48 @@ st.markdown("""
     /* Áp dụng animation cho nội dung các Tab và Panels */
     div[data-testid="stTabs"] > div[role="tabpanel"] {
         animation: smoothFadeIn 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    /* WMS Unified DateTime Range Picker Styling */
+    div[data-testid="stPopover"] {
+        width: 100% !important;
+    }
+    div[data-testid="stPopover"] > button {
+        background-color: #1e293b !important;
+        border: 1px solid #475569 !important;
+        border-radius: 6px !important;
+        color: #f8fafc !important;
+        font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace, 'Inter', sans-serif !important;
+        font-size: 13.5px !important;
+        font-weight: 600 !important;
+        padding: 8px 14px !important;
+        min-height: 42px !important;
+        width: 100% !important;
+        display: flex !important;
+        justify-content: space-between !important;
+        align-items: center !important;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25) !important;
+        transition: all 0.2s ease !important;
+    }
+    div[data-testid="stPopover"] > button:hover {
+        border-color: #38bdf8 !important;
+        background-color: #24344d !important;
+        box-shadow: 0 0 0 1px #38bdf8 !important;
+        color: #ffffff !important;
+    }
+    div[data-testid="stPopoverBody"] {
+        background-color: #0f172a !important;
+        border: 1px solid #334155 !important;
+        border-radius: 10px !important;
+        padding: 16px !important;
+        box-shadow: 0 16px 36px -4px rgba(0, 0, 0, 0.6) !important;
+        min-width: 520px !important;
+        max-width: 600px !important;
+    }
+    div[data-testid="stPopoverBody"] button {
+        font-size: 12px !important;
+        padding: 4px 8px !important;
+        min-height: 32px !important;
     }
 
     .header-box, .kpi-card, .chart-title-banner, div[data-testid="stPlotlyChart"], div[data-testid="stDataFrame"] {
@@ -4142,13 +4190,21 @@ def main():
     cur_stage_name = cur_cfg[f'name_{lang.lower()}'].upper()
     cur_stage_title = cur_cfg[f'title_{lang.lower()}']
 
-    # Khởi tạo ngày và khung giờ mặc định nếu chưa có (mặc định là hôm nay, từ 00:00 đến 23:59)
+    # Khởi tạo ngày và khung giờ mặc định nếu chưa có (chuẩn WMS: hôm nay từ 00:00 đến 23:59)
+    if "wms_d_from" not in st.session_state:
+        st.session_state.wms_d_from = today_vn
+    if "wms_d_to" not in st.session_state:
+        st.session_state.wms_d_to = today_vn
+    if "wms_t_from" not in st.session_state:
+        st.session_state.wms_t_from = datetime.time(0, 0)
+    if "wms_t_to" not in st.session_state:
+        st.session_state.wms_t_to = datetime.time(23, 59)
     if "date_range_val" not in st.session_state:
-        st.session_state.date_range_val = (today_vn, today_vn)
+        st.session_state.date_range_val = (st.session_state.wms_d_from, st.session_state.wms_d_to)
     if "time_from_val" not in st.session_state:
-        st.session_state.time_from_val = datetime.time(0, 0)
+        st.session_state.time_from_val = st.session_state.wms_t_from
     if "time_to_val" not in st.session_state:
-        st.session_state.time_to_val = datetime.time(23, 59)
+        st.session_state.time_to_val = st.session_state.wms_t_to
 
     # 1. Tiêu đề khâu vận hành nằm phía trên
     st.markdown(f'<div style="font-size: 22px; font-weight: 800; color: #ffffff; letter-spacing: 0.5px; margin: 4px 0 14px 0;">{cur_stage_title}</div>', unsafe_allow_html=True)
@@ -4156,12 +4212,13 @@ def main():
     if cur_cfg.get("type") in ["planning"]:
         selected_cust_type = t["all_option"]
         selected_cust_name = t["all_option"]
-        start_date, end_date = st.session_state.date_range_val
+        start_date = st.session_state.wms_d_from
+        end_date = st.session_state.wms_d_to
         start_time, end_time = datetime.time(0, 0), datetime.time(23, 59)
         df_filtered = df_raw
     else:
-        # 2. Bộ lọc khách hàng, Khoảng ngày và Khung giờ đối soát (Mặc định 00:00 đến 23:59)
-        col_filter_type, col_filter_name, col_date_range, col_time_from, col_time_to = st.columns([1.0, 1.3, 1.4, 0.85, 0.85])
+        # 2. Bộ lọc khách hàng và Hộp chọn thời gian tích hợp chuẩn iWMS (Date & Time Range Picker)
+        col_filter_type, col_filter_name, col_datetime_range = st.columns([1.0, 1.4, 2.6])
         
         with col_filter_type:
             st.markdown("<div style='margin-top: 4px;'>", unsafe_allow_html=True)
@@ -4197,56 +4254,140 @@ def main():
             )
             st.markdown("</div>", unsafe_allow_html=True)
 
-        with col_date_range:
-            st.markdown("<div style='margin-top: 4px;'>", unsafe_allow_html=True)
-            date_input_res = st.date_input(
-                t['date_range_header'],
-                value=st.session_state.date_range_val,
-                max_value=today_vn + timedelta(days=1),
-                key="main_date_range_picker"
-            )
-            if isinstance(date_input_res, (list, tuple)):
-                if len(date_input_res) == 2:
-                    start_date, end_date = date_input_res
-                elif len(date_input_res) == 1:
-                    start_date = end_date = date_input_res[0]
-                else:
-                    start_date = end_date = today_vn
-            else:
-                start_date = end_date = date_input_res
+        # Lấy giá trị ngày & giờ hiện tại
+        start_date = st.session_state.wms_d_from
+        end_date = st.session_state.wms_d_to
+        start_time = st.session_state.wms_t_from
+        end_time = st.session_state.wms_t_to
 
-            if start_date > end_date:
-                start_date, end_date = end_date, start_date
-
-            st.session_state.date_range_val = (start_date, end_date)
-            st.markdown("</div>", unsafe_allow_html=True)
-
-        with col_time_from:
-            st.markdown("<div style='margin-top: 4px;'>", unsafe_allow_html=True)
-            time_from_res = st.time_input(
-                t['time_from_header'],
-                value=st.session_state.get('time_from_val', datetime.time(0, 0)),
-                key="main_time_from_picker",
-                step=1800
-            )
-            st.session_state.time_from_val = time_from_res
-            st.markdown("</div>", unsafe_allow_html=True)
-
-        with col_time_to:
-            st.markdown("<div style='margin-top: 4px;'>", unsafe_allow_html=True)
-            time_to_res = st.time_input(
-                t['time_to_header'],
-                value=st.session_state.get('time_to_val', datetime.time(23, 59)),
-                key="main_time_to_picker",
-                step=1800
-            )
-            st.session_state.time_to_val = time_to_res
-            st.markdown("</div>", unsafe_allow_html=True)
-
-        start_time = st.session_state.time_from_val
-        end_time = st.session_state.time_to_val
-        if start_time > end_time:
+        if start_date > end_date:
+            start_date, end_date = end_date, start_date
+        if start_date == end_date and start_time > end_time:
             start_time, end_time = end_time, start_time
+
+        start_sec_str = "00"
+        end_sec_str = "59" if end_time.minute == 59 else "00"
+        dt_btn_label = f"🕒  {start_date.strftime('%Y-%m-%d')} {start_time.strftime('%H:%M')}:{start_sec_str}   -   {end_date.strftime('%Y-%m-%d')} {end_time.strftime('%H:%M')}:{end_sec_str}  ▾"
+
+        with col_datetime_range:
+            st.markdown(f"<div style='margin-top: 4px; font-size: 14px; font-weight: 500; color: #f1f5f9; margin-bottom: 4px;'>{t['date_range_header']}</div>", unsafe_allow_html=True)
+            with st.popover(dt_btn_label, use_container_width=True):
+                # Header popup mô phỏng chuẩn iWMS JoyLogistics
+                st.markdown(f"""
+                <div style="display: flex; justify-content: space-between; align-items: center; background: #0b1329; padding: 10px 14px; border-radius: 6px; border: 1px solid #334155; margin-bottom: 14px; font-family: monospace; font-size: 13.5px; font-weight: 600;">
+                    <div style="display: flex; gap: 6px; align-items: center;">
+                        <span style="background: #1e293b; padding: 3px 8px; border-radius: 4px; border: 1px solid #475569; color: #38bdf8;">{start_date.strftime('%Y-%m-%d')}</span>
+                        <span style="background: #1e293b; padding: 3px 8px; border-radius: 4px; border: 1px solid #475569; color: #38bdf8;">{start_time.strftime('%H:%M')}:{start_sec_str}</span>
+                    </div>
+                    <span style="color: #64748b; font-size: 15px; font-weight: bold;">➔</span>
+                    <div style="display: flex; gap: 6px; align-items: center;">
+                        <span style="background: #1e293b; padding: 3px 8px; border-radius: 4px; border: 1px solid #475569; color: #38bdf8;">{end_date.strftime('%Y-%m-%d')}</span>
+                        <span style="background: #1e293b; padding: 3px 8px; border-radius: 4px; border: 1px solid #475569; color: #38bdf8;">{end_time.strftime('%H:%M')}:{end_sec_str}</span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                col_p_from, col_p_to = st.columns(2)
+                with col_p_from:
+                    st.markdown(f"<div style='font-size: 12px; font-weight: 700; color: #94a3b8; text-transform: uppercase; margin-bottom: 4px;'>{t['lbl_from_header']}</div>", unsafe_allow_html=True)
+                    pop_d_start = st.date_input(
+                        "Ngày bắt đầu",
+                        value=st.session_state.wms_d_from,
+                        max_value=today_vn + timedelta(days=1),
+                        key="wms_pop_d_start",
+                        label_visibility="collapsed"
+                    )
+                    pop_t_start = st.time_input(
+                        "Giờ bắt đầu",
+                        value=st.session_state.wms_t_from,
+                        key="wms_pop_t_start",
+                        step=1800,
+                        label_visibility="collapsed"
+                    )
+                with col_p_to:
+                    st.markdown(f"<div style='font-size: 12px; font-weight: 700; color: #94a3b8; text-transform: uppercase; margin-bottom: 4px;'>{t['lbl_to_header']}</div>", unsafe_allow_html=True)
+                    pop_d_end = st.date_input(
+                        "Ngày kết thúc",
+                        value=st.session_state.wms_d_to,
+                        max_value=today_vn + timedelta(days=1),
+                        key="wms_pop_d_end",
+                        label_visibility="collapsed"
+                    )
+                    pop_t_end = st.time_input(
+                        "Giờ kết thúc",
+                        value=st.session_state.wms_t_to,
+                        key="wms_pop_t_end",
+                        step=1800,
+                        label_visibility="collapsed"
+                    )
+
+                def apply_preset(d_from, d_to, t_from, t_to):
+                    st.session_state.wms_d_from = d_from
+                    st.session_state.wms_d_to = d_to
+                    st.session_state.wms_t_from = t_from
+                    st.session_state.wms_t_to = t_to
+                    st.session_state.wms_pop_d_start = d_from
+                    st.session_state.wms_pop_d_end = d_to
+                    st.session_state.wms_pop_t_start = t_from
+                    st.session_state.wms_pop_t_end = t_to
+                    st.session_state.date_range_val = (d_from, d_to)
+                    st.session_state.time_from_val = t_from
+                    st.session_state.time_to_val = t_to
+                    st.rerun()
+
+                # Nút chọn nhanh (Quick Presets)
+                st.markdown("<div style='height: 1px; background: #334155; margin: 12px 0 8px 0;'></div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='font-size: 11px; font-weight: 600; color: #64748b; letter-spacing: 0.5px; margin-bottom: 6px;'>{t['lbl_quick_presets']}</div>", unsafe_allow_html=True)
+                
+                pr1, pr2, pr3, pr4, pr5 = st.columns(5)
+                with pr1:
+                    if st.button("Hôm nay" if lang == "VN" else "今日", use_container_width=True, key="pop_pre_today"):
+                        apply_preset(today_vn, today_vn, datetime.time(0, 0), datetime.time(23, 59))
+                with pr2:
+                    if st.button("Hôm qua" if lang == "VN" else "昨日", use_container_width=True, key="pop_pre_yesterday"):
+                        yest = today_vn - timedelta(days=1)
+                        apply_preset(yest, yest, datetime.time(0, 0), datetime.time(23, 59))
+                with pr3:
+                    if st.button("Ca ngày (8-17h)" if lang == "VN" else "白班 (8-17h)", use_container_width=True, key="pop_pre_day"):
+                        apply_preset(st.session_state.wms_d_from, st.session_state.wms_d_to, datetime.time(8, 0), datetime.time(17, 0))
+                with pr4:
+                    if st.button("Ca đêm (17-24h)" if lang == "VN" else "晚班 (17-24h)", use_container_width=True, key="pop_pre_night"):
+                        apply_preset(st.session_state.wms_d_from, st.session_state.wms_d_to, datetime.time(17, 0), datetime.time(23, 59))
+                with pr5:
+                    if st.button("7 ngày" if lang == "VN" else "近7天", use_container_width=True, key="pop_pre_7d"):
+                        apply_preset(today_vn - timedelta(days=6), today_vn, datetime.time(0, 0), datetime.time(23, 59))
+
+                st.markdown("<div style='height: 1px; background: #334155; margin: 12px 0 8px 0;'></div>", unsafe_allow_html=True)
+                b_clear, b_ok = st.columns(2)
+                with b_clear:
+                    if st.button("Clear / Mặc định" if lang == "VN" else "重置", use_container_width=True, key="pop_action_clear"):
+                        apply_preset(today_vn, today_vn, datetime.time(0, 0), datetime.time(23, 59))
+                with b_ok:
+                    if st.button("OK / Xác nhận" if lang == "VN" else "确定", type="primary", use_container_width=True, key="pop_action_ok"):
+                        if pop_d_start > pop_d_end:
+                            pop_d_start, pop_d_end = pop_d_end, pop_d_start
+                        if pop_d_start == pop_d_end and pop_t_start > pop_t_end:
+                            pop_t_start, pop_t_end = pop_t_end, pop_t_start
+                        apply_preset(pop_d_start, pop_d_end, pop_t_start, pop_t_end)
+
+                # Tự động cập nhật nếu thay đổi trực tiếp từ date/time input
+                if (pop_d_start != st.session_state.wms_d_from or pop_d_end != st.session_state.wms_d_to or 
+                    pop_t_start != st.session_state.wms_t_from or pop_t_end != st.session_state.wms_t_to):
+                    if pop_d_start > pop_d_end:
+                        pop_d_start, pop_d_end = pop_d_end, pop_d_start
+                    st.session_state.wms_d_from = pop_d_start
+                    st.session_state.wms_d_to = pop_d_end
+                    st.session_state.wms_t_from = pop_t_start
+                    st.session_state.wms_t_to = pop_t_end
+                    st.session_state.date_range_val = (pop_d_start, pop_d_end)
+                    st.session_state.time_from_val = pop_t_start
+                    st.session_state.time_to_val = pop_t_end
+                    st.rerun()
+
+        start_date = st.session_state.wms_d_from
+        end_date = st.session_state.wms_d_to
+        start_time = st.session_state.wms_t_from
+        end_time = st.session_state.wms_t_to
 
         df_filtered = filter_by_customer(df_raw, selected_cust_type, selected_cust_name)
 
