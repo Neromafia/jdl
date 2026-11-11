@@ -1712,14 +1712,71 @@ def filter_by_customer(df: pd.DataFrame, cust_type: str, cust_name: str) -> pd.D
     return res
 
 
-def filter_by_date_range(df: pd.DataFrame, start_date: datetime.date, end_date: datetime.date, start_hour: int = 0, end_hour: int = 23) -> pd.DataFrame:
-    """Lọc dữ liệu theo khoảng thời gian start_date -> end_date và start_hour -> end_hour."""
-    if df.empty or 'op_date' not in df.columns:
+def filter_by_date_range(df: pd.DataFrame, start_date: datetime.date, end_date: datetime.date, start_time=datetime.time(0, 0), end_time=datetime.time(23, 59)) -> pd.DataFrame:
+    """
+    Lọc dữ liệu chính xác theo ngày và giờ (hỗ trợ đầy đủ ca ngày lẫn ca đêm qua ngày 22:00 -> 06:00).
+    """
+    if df.empty:
         return df
-    res = df[(df['op_date'] >= start_date) & (df['op_date'] <= end_date)]
-    if 'op_hour' in res.columns and (start_hour > 0 or end_hour < 23):
-        res = res[(res['op_hour'] >= start_hour) & (res['op_hour'] <= end_hour)]
-    return res.copy()
+
+    # Chuẩn hóa start_time và end_time nếu tham số truyền vào là int (giờ)
+    if isinstance(start_time, int):
+        s_h = max(0, min(23, start_time))
+        start_time = datetime.time(s_h, 0)
+    else:
+        s_h = start_time.hour
+
+    if isinstance(end_time, int):
+        e_h = max(0, min(23, end_time))
+        end_time = datetime.time(e_h, 59)
+    else:
+        e_h = end_time.hour
+
+    date_col = 'op_date' if 'op_date' in df.columns else ('inv_date' if 'inv_date' in df.columns else None)
+    if not date_col:
+        return df
+
+    if 'op_hour' in df.columns:
+        hour_series = df['op_hour'].fillna(0).astype(int)
+    elif 'inventory_time' in df.columns:
+        hour_series = pd.to_datetime(df['inventory_time']).dt.hour
+    else:
+        hour_series = None
+
+    if hour_series is None or (s_h == 0 and e_h == 23 and start_date <= end_date):
+        return df[(df[date_col] >= start_date) & (df[date_col] <= end_date)].copy()
+
+    # Trường hợp 1: Cùng ngày (start_date == end_date)
+    if start_date == end_date:
+        if s_h <= e_h:
+            mask = (df[date_col] == start_date) & (hour_series >= s_h) & (hour_series <= e_h)
+        else:
+            mask = (df[date_col] == start_date) & ((hour_series >= s_h) | (hour_series <= e_h))
+        return df[mask].copy()
+
+    # Trường hợp 2: Khác ngày (start_date < end_date, ví dụ 10/11 22h -> 11/11 6h)
+    mask_start = (df[date_col] == start_date) & (hour_series >= s_h)
+    mask_end = (df[date_col] == end_date) & (hour_series <= e_h)
+    mask_mid = (df[date_col] > start_date) & (df[date_col] < end_date)
+    return df[mask_start | mask_mid | mask_end].copy()
+
+
+def get_shift_ordered_hours(hours_list, s_h, e_h):
+    """
+    Sắp xếp danh sách khung giờ phát sinh theo trình tự ca vận hành:
+    - Nếu s_h <= e_h: sắp xếp tăng dần bình thường (ví dụ: 8h -> 17h)
+    - Nếu s_h > e_h (ca đêm): giờ tối (>= s_h) trước, giờ sáng (<= e_h) sau (ví dụ: 22h -> 23h -> 0h -> 6h)
+    """
+    if not hours_list:
+        return []
+    unique_hours = list(set(hours_list))
+    if s_h <= e_h:
+        return sorted([h for h in unique_hours if s_h <= h <= e_h])
+    else:
+        evening = sorted([h for h in unique_hours if h >= s_h])
+        morning = sorted([h for h in unique_hours if h <= e_h])
+        mid = sorted([h for h in unique_hours if h < s_h and h > e_h])
+        return evening + morning + mid
 
 
 
@@ -1790,12 +1847,7 @@ def fetch_hourly_worker_data(stage_key: str, start_date: datetime.date, end_date
 def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_date: datetime.date, cfg: dict, stage_key: str, selected_cust_type: str, selected_cust_name: str, t: dict, lang: str, start_time: datetime.time = datetime.time(0, 0), end_time: datetime.time = datetime.time(23, 59)):
     st.markdown(f'<div class="section-title">{t["sec_hourly"]}</div>', unsafe_allow_html=True)
 
-    start_hour = start_time.hour
-    end_hour = end_time.hour
-    if start_hour > end_hour:
-        start_hour, end_hour = end_hour, start_hour
-
-    df_range = filter_by_date_range(df_filtered, start_date, end_date, start_hour, end_hour)
+    df_range = filter_by_date_range(df_filtered, start_date, end_date, start_time, end_time)
 
     tot_qty = df_range['total_qty'].sum() if not df_range.empty else 0.0
     tot_orders = df_range['total_orders'].sum() if not df_range.empty else 0
@@ -2025,13 +2077,10 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
         fill_value=0
     )
     raw_hour_cols = [c for c in pivot_cust.columns if isinstance(c, (int, float, np.integer)) or str(c).isdigit()]
-    active_hours = sorted([int(h) for h in raw_hour_cols if pivot_cust[h].sum() > 0])
+    active_hours = [int(h) for h in raw_hour_cols if pivot_cust[h].sum() > 0]
+    display_hours = get_shift_ordered_hours(active_hours, start_time.hour, end_time.hour)
 
-    if active_hours:
-        min_display_hour = min(active_hours) if start_hour == 0 else start_hour
-        max_display_hour = max(max(active_hours), end_hour)
-        display_hours = list(range(min_display_hour, max_display_hour + 1))
-
+    if display_hours:
         pivot_cust = pivot_cust.reindex(columns=display_hours, fill_value=0)
         pivot_cust[t['lbl_total_column']] = pivot_cust.sum(axis=1)
         pivot_cust = pivot_cust.sort_values(t['lbl_total_column'], ascending=False)
@@ -2059,7 +2108,7 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
             st.download_button(
                 label=t['btn_download_hourly'],
                 data=csv_bytes,
-                file_name=f"hourly_customers_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}_{start_hour:02d}h_{end_hour:02d}h.csv",
+                file_name=f"hourly_customers_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}_{start_time.strftime('%H%M')}_{end_time.strftime('%H%M')}.csv",
                 mime="text/csv",
                 use_container_width=True,
                 key=f"btn_dl_hourly_cust_{stage_key}"
@@ -2078,8 +2127,7 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
             df_workers_raw = fetch_hourly_worker_data(stage_key, start_date, end_date, cache_version=cur_v)
 
         df_workers = filter_by_customer(df_workers_raw, selected_cust_type, selected_cust_name)
-        if not df_workers.empty and 'op_hour' in df_workers.columns and (start_hour > 0 or end_hour < 23):
-            df_workers = df_workers[(df_workers['op_hour'] >= start_hour) & (df_workers['op_hour'] <= end_hour)]
+        df_workers = filter_by_date_range(df_workers, start_date, end_date, start_time, end_time)
 
         if not df_workers.empty:
             pivot_worker = df_workers.pivot_table(
@@ -2090,13 +2138,10 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
                 fill_value=0
             )
             raw_worker_hours = [c for c in pivot_worker.columns if isinstance(c, (int, float, np.integer)) or str(c).isdigit()]
-            active_worker_hours = sorted([int(h) for h in raw_worker_hours if pivot_worker[h].sum() > 0])
+            active_worker_hours = [int(h) for h in raw_worker_hours if pivot_worker[h].sum() > 0]
+            display_worker_hours = get_shift_ordered_hours(active_worker_hours, start_time.hour, end_time.hour)
 
-            if active_worker_hours:
-                min_worker_hour = min(active_worker_hours) if start_hour == 0 else start_hour
-                max_worker_hour = max(max(active_worker_hours), end_hour)
-                display_worker_hours = list(range(min_worker_hour, max_worker_hour + 1))
-
+            if display_worker_hours:
                 pivot_worker = pivot_worker.reindex(columns=display_worker_hours, fill_value=0)
                 pivot_worker[t['lbl_total_column']] = pivot_worker.sum(axis=1)
                 pivot_worker = pivot_worker.sort_values(t['lbl_total_column'], ascending=False)
@@ -2124,7 +2169,7 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
                     st.download_button(
                         label=t['btn_download_staff_hourly'],
                         data=csv_worker_bytes,
-                        file_name=f"hourly_staff_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}_{start_hour:02d}h_{end_hour:02d}h.csv",
+                        file_name=f"hourly_staff_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}_{start_time.strftime('%H%M')}_{end_time.strftime('%H%M')}.csv",
                         mime="text/csv",
                         use_container_width=True,
                         key=f"btn_dl_hourly_staff_{stage_key}"
@@ -3250,17 +3295,12 @@ def render_pipeline_summary(cust_type: str, cust_name: str, start_date: datetime
     sync_st = get_global_sync_state()
     cur_v = sync_st.get("data_version", 0.0)
 
-    start_hour = start_time.hour
-    end_hour = end_time.hour
-    if start_hour > end_hour:
-        start_hour, end_hour = end_hour, start_hour
-
     # 1. Fetch và tính toán dữ liệu các khâu trọng tâm (Skip khâu Lên Kệ theo yêu cầu)
     # Khâu NHẬP HÀNG (Purchase Inbound)
     df_rec = pd.DataFrame()
     try:
         raw_rec = fetch_stage_data("NHẬP HÀNG", cache_version=cur_v)
-        df_rec = filter_by_date_range(filter_by_customer(raw_rec, cust_type, cust_name), start_date, end_date, start_hour, end_hour)
+        df_rec = filter_by_date_range(filter_by_customer(raw_rec, cust_type, cust_name), start_date, end_date, start_time, end_time)
     except Exception:
         pass
     rec_orders = int(df_rec['total_orders'].sum()) if not df_rec.empty else 0
@@ -3270,7 +3310,7 @@ def render_pipeline_summary(cust_type: str, cust_name: str, start_date: datetime
     df_ret = pd.DataFrame()
     try:
         raw_ret = fetch_stage_data("HOÀN TRẢ", cache_version=cur_v)
-        df_ret = filter_by_date_range(filter_by_customer(raw_ret, cust_type, cust_name), start_date, end_date, start_hour, end_hour)
+        df_ret = filter_by_date_range(filter_by_customer(raw_ret, cust_type, cust_name), start_date, end_date, start_time, end_time)
     except Exception:
         pass
     ret_orders = int(df_ret['total_orders'].sum()) if not df_ret.empty else 0
@@ -3282,10 +3322,7 @@ def render_pipeline_summary(cust_type: str, cust_name: str, start_date: datetime
         raw_inv = fetch_inventory_data(cache_version=cur_v)
         if not raw_inv.empty:
             df_inv = filter_by_customer(raw_inv, cust_type, cust_name)
-            df_inv = df_inv[(df_inv['inv_date'] >= start_date) & (df_inv['inv_date'] <= end_date)]
-            if (start_hour > 0 or end_hour < 23) and 'inventory_time' in df_inv.columns:
-                inv_h = pd.to_datetime(df_inv['inventory_time']).dt.hour
-                df_inv = df_inv[(inv_h >= start_hour) & (inv_h <= end_hour)]
+            df_inv = filter_by_date_range(df_inv, start_date, end_date, start_time, end_time)
     except Exception:
         pass
     inv_diff_qty = int(df_inv['difference_qty'].sum()) if not df_inv.empty else 0
@@ -3297,7 +3334,7 @@ def render_pipeline_summary(cust_type: str, cust_name: str, start_date: datetime
     df_pick = pd.DataFrame()
     try:
         raw_pick = fetch_stage_data("NHẶT HÀNG", cache_version=cur_v)
-        df_pick = filter_by_date_range(filter_by_customer(raw_pick, cust_type, cust_name), start_date, end_date, start_hour, end_hour)
+        df_pick = filter_by_date_range(filter_by_customer(raw_pick, cust_type, cust_name), start_date, end_date, start_time, end_time)
     except Exception:
         pass
     pick_orders = int(df_pick['total_orders'].sum()) if not df_pick.empty else 0
@@ -3307,7 +3344,7 @@ def render_pipeline_summary(cust_type: str, cust_name: str, start_date: datetime
     df_pack = pd.DataFrame()
     try:
         raw_pack = fetch_stage_data("ĐÓNG GÓI", cache_version=cur_v)
-        df_pack = filter_by_date_range(filter_by_customer(raw_pack, cust_type, cust_name), start_date, end_date, start_hour, end_hour)
+        df_pack = filter_by_date_range(filter_by_customer(raw_pack, cust_type, cust_name), start_date, end_date, start_time, end_time)
     except Exception:
         pass
     pack_orders = int(df_pack['total_orders'].sum()) if not df_pack.empty else 0
@@ -3317,7 +3354,7 @@ def render_pipeline_summary(cust_type: str, cust_name: str, start_date: datetime
     df_hnd = pd.DataFrame()
     try:
         raw_hnd = fetch_stage_data("BÀN GIAO", cache_version=cur_v)
-        df_hnd = filter_by_date_range(filter_by_customer(raw_hnd, cust_type, cust_name), start_date, end_date, start_hour, end_hour)
+        df_hnd = filter_by_date_range(filter_by_customer(raw_hnd, cust_type, cust_name), start_date, end_date, start_time, end_time)
     except Exception:
         pass
     hnd_orders = int(df_hnd['total_orders'].sum()) if not df_hnd.empty else 0
@@ -3579,14 +3616,7 @@ def render_inventory_dashboard(df_inventory: pd.DataFrame, cust_type: str, cust_
     df = df_inventory.copy()
 
     # 1. Lọc theo khoảng thời gian đối soát
-    df = df[(df['inv_date'] >= start_date) & (df['inv_date'] <= end_date)]
-    start_hour = start_time.hour
-    end_hour = end_time.hour
-    if start_hour > end_hour:
-        start_hour, end_hour = end_hour, start_hour
-    if (start_hour > 0 or end_hour < 23) and 'inventory_time' in df.columns:
-        inv_hours = pd.to_datetime(df['inventory_time']).dt.hour
-        df = df[(inv_hours >= start_hour) & (inv_hours <= end_hour)]
+    df = filter_by_date_range(df, start_date, end_date, start_time, end_time)
 
     # 2. Lọc theo loại khách hàng
     if cust_type and cust_type != t["all_option"]:
@@ -4262,8 +4292,6 @@ def main():
 
         if start_date > end_date:
             start_date, end_date = end_date, start_date
-        if start_date == end_date and start_time > end_time:
-            start_time, end_time = end_time, start_time
 
         start_sec_str = "00"
         end_sec_str = "59" if end_time.minute == 59 else "00"
@@ -4325,8 +4353,6 @@ def main():
                 def apply_preset(d_from, d_to, t_from, t_to):
                     if d_from > d_to:
                         d_from, d_to = d_to, d_from
-                    if d_from == d_to and t_from > t_to:
-                        t_from, t_to = t_to, t_from
                     st.session_state.wms_d_from = d_from
                     st.session_state.wms_d_to = d_to
                     st.session_state.wms_t_from = t_from
@@ -4353,8 +4379,8 @@ def main():
                     if st.button("Ca ngày (8-17h)" if lang == "VN" else "白班 (8-17h)", use_container_width=True, key="pop_pre_day"):
                         apply_preset(st.session_state.wms_d_from, st.session_state.wms_d_to, datetime.time(8, 0), datetime.time(17, 0))
                 with pr4:
-                    if st.button("Ca đêm (17-24h)" if lang == "VN" else "晚班 (17-24h)", use_container_width=True, key="pop_pre_night"):
-                        apply_preset(st.session_state.wms_d_from, st.session_state.wms_d_to, datetime.time(17, 0), datetime.time(23, 59))
+                    if st.button("Ca đêm (22-06h)" if lang == "VN" else "夜班 (22-06h)", use_container_width=True, key="pop_pre_night"):
+                        apply_preset(today_vn - timedelta(days=1), today_vn, datetime.time(22, 0), datetime.time(6, 0))
                 with pr5:
                     if st.button("7 ngày" if lang == "VN" else "近7天", use_container_width=True, key="pop_pre_7d"):
                         apply_preset(today_vn - timedelta(days=6), today_vn, datetime.time(0, 0), datetime.time(23, 59))
