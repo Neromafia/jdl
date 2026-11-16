@@ -3058,21 +3058,6 @@ def render_headcount_planning(cust_type: str, cust_name: str, start_date: dateti
 
     st.html(table_html)
 
-    # Hiển thị ghi chú điều phối mượn nhân sự ngoài nếu có ngày thiếu
-    has_borrow = any(b > 0 for b in daily_borrow_2c)
-    if has_borrow:
-        borrow_details = []
-        for i in range(7):
-            if daily_borrow_2c[i] > 0:
-                borrow_details.append(f"<b>{dow_names[i]}</b>: thiếu <b>{daily_borrow_2c[i]}</b> người")
-        borrow_str = " • ".join(borrow_details)
-        st.markdown(f"""
-        <div style="background: rgba(245, 158, 11, 0.1); border-left: 4px solid #f59e0b; padding: 10px 14px; border-radius: 4px; margin-top: 10px; font-size: 13px; color: #fde68a;">
-            💡 <b>Điều phối nhân sự cao điểm:</b> Định biên Đóng Gói (Pack 2C) được giới hạn trần tối đa là <b>{max_pack_hc} người</b> (không chạm đầu 3). 
-            Vào các ngày cao điểm ({borrow_str}), kho sẽ chủ động <b>mượn thêm nhân sự từ các khâu khác</b> (Kho/Xe nâng/Bàn giao/Lên kệ) để hỗ trợ hoàn thành sản lượng đóng gói.
-        </div>
-        """, unsafe_allow_html=True)
-
     # 6. BẢNG SẢN LƯỢNG KẾ HOẠCH VÀ THỰC TẾ (LUÔN HIỂN THỊ CHI TIẾT)
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown(f'<div style="font-size: 18px; font-weight: 700; color: #cbd5e1; margin-top: 6px; margin-bottom: 12px;">{t["sec_volume_comparison"]}</div>', unsafe_allow_html=True)
