@@ -2851,6 +2851,37 @@ def render_headcount_planning(cust_type: str, cust_name: str, start_date: dateti
             st.markdown(f"**Khách hàng KKV**")
             hc_kkv = st.number_input(t['task_kkv'], min_value=0, value=12, step=1, key="hc_iso_kkv")
 
+        st.markdown("<div style='height: 1px; background: #334155; margin: 12px 0 8px 0;'></div>", unsafe_allow_html=True)
+        st.markdown(f"**Quy chuẩn Định biên Nhặt hàng & Đóng gói B2C**")
+        cp1, cp2, cp3 = st.columns(3)
+        with cp1:
+            max_pack_hc = st.number_input(
+                "Trần nhân sự Đóng gói tối đa (Max Pack HC)",
+                min_value=1,
+                value=25,
+                step=1,
+                key="hc_max_pack",
+                help="Định biên nhân sự cứng tối đa của khâu Pack (thường không quá 25, nếu thiếu sẽ mượn khâu khác)"
+            )
+        with cp2:
+            pack_ratio_pct = st.number_input(
+                "Tỉ lệ Pack cao hơn Pick (%)",
+                min_value=0,
+                value=20,
+                step=5,
+                key="hc_pack_ratio",
+                help="Pack thường cao hơn Pick 20% (ví dụ: pack 24 thì pick 20, pack 25 thì pick 21)"
+            )
+        with cp3:
+            pack_base_uph = st.number_input(
+                "Định mức UPH Đóng gói cơ sở (đơn/h)",
+                min_value=10.0,
+                value=54.0,
+                step=1.0,
+                key="hc_pack_uph",
+                help="Định mức UPH cơ sở tính cho ca 8 tiếng trước khi áp dụng trần"
+            )
+
     # 3. TẬP HỢP TẤT CẢ KHÁCH HÀNG 2C VÀ 2B
     all_client_names = set()
     for (d_str, c_name) in weekly_actual.keys():
@@ -2892,6 +2923,9 @@ def render_headcount_planning(cust_type: str, cust_name: str, start_date: dateti
 
     daily_pick_2c = []
     daily_pack_2c = []
+    daily_borrow_2c = []
+
+    ratio_factor = 1.0 + (pack_ratio_pct / 100.0)
 
     for i, d in enumerate(week_dates):
         d_str = d.strftime('%Y-%m-%d')
@@ -2930,10 +2964,20 @@ def render_headcount_planning(cust_type: str, cust_name: str, start_date: dateti
 
         daily_total_2c_ords_fc.append(day_tot_2c_fc_o)
 
-        # Tính toán định biên Pick & Pack 2C
-        uph_cfg = DOW_BENCHMARK_UPH.get(dow, {"pick_uph": 55.0, "pack_uph": 50.0})
-        pick_hc = math.ceil(ord_for_hc / (uph_cfg["pick_uph"] * 8.0)) if ord_for_hc > 0 else 0
-        pack_hc = math.ceil(ord_for_hc / (uph_cfg["pack_uph"] * 8.0)) if ord_for_hc > 0 else 0
+        # Tính toán định biên Pick & Pack 2C theo quy tắc vận hành thực tế:
+        # 1. Nhu cầu Pack theo UPH cơ sở (mặc định 54 đơn/giờ)
+        raw_pack_hc = math.ceil(ord_for_hc / (pack_base_uph * 8.0)) if ord_for_hc > 0 else 0
+        
+        # 2. Áp dụng trần Pack tối đa (mặc định 25, không vượt quá)
+        pack_hc = min(max_pack_hc, raw_pack_hc)
+        
+        # 3. Pack thường cao hơn Pick 20% (ví dụ pack 24 thì pick 20, pack 25 thì pick 21)
+        pick_hc = round(pack_hc / ratio_factor) if pack_hc > 0 else 0
+        
+        # 4. Ghi nhận số nhân sự thiếu cần mượn ngoài vào ngày cao điểm
+        borrow_hc = max(0, raw_pack_hc - max_pack_hc)
+        daily_borrow_2c.append(borrow_hc)
+
         daily_pick_2c.append(pick_hc)
         daily_pack_2c.append(pack_hc)
 
@@ -3013,6 +3057,21 @@ def render_headcount_planning(cust_type: str, cust_name: str, start_date: dateti
 </div>"""
 
     st.html(table_html)
+
+    # Hiển thị ghi chú điều phối mượn nhân sự ngoài nếu có ngày thiếu
+    has_borrow = any(b > 0 for b in daily_borrow_2c)
+    if has_borrow:
+        borrow_details = []
+        for i in range(7):
+            if daily_borrow_2c[i] > 0:
+                borrow_details.append(f"<b>{dow_names[i]}</b>: thiếu <b>{daily_borrow_2c[i]}</b> người")
+        borrow_str = " • ".join(borrow_details)
+        st.markdown(f"""
+        <div style="background: rgba(245, 158, 11, 0.1); border-left: 4px solid #f59e0b; padding: 10px 14px; border-radius: 4px; margin-top: 10px; font-size: 13px; color: #fde68a;">
+            💡 <b>Điều phối nhân sự cao điểm:</b> Định biên Đóng Gói (Pack 2C) được giới hạn trần tối đa là <b>{max_pack_hc} người</b> (không chạm đầu 3). 
+            Vào các ngày cao điểm ({borrow_str}), kho sẽ chủ động <b>mượn thêm nhân sự từ các khâu khác</b> (Kho/Xe nâng/Bàn giao/Lên kệ) để hỗ trợ hoàn thành sản lượng đóng gói.
+        </div>
+        """, unsafe_allow_html=True)
 
     # 6. BẢNG SẢN LƯỢNG KẾ HOẠCH VÀ THỰC TẾ (LUÔN HIỂN THỊ CHI TIẾT)
     st.markdown("<br>", unsafe_allow_html=True)
