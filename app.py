@@ -642,8 +642,9 @@ STAGE_CONFIGS = {
         "title_zh": "",
         "desc_vn": "Theo dõi bàn giao kiện hàng cho các đơn vị vận chuyển",
         "desc_zh": "",
+        "type": "handover",
         "table": "fact_handover",
-        "where": "handover_time IS NOT NULL",
+        "where": "handover_time IS NOT NULL AND (UPPER(COALESCE(carrier_name, '')) LIKE '%J&T%' OR UPPER(COALESCE(carrier_name, '')) LIKE '%SHOPEE%' OR UPPER(COALESCE(carrier_name, '')) LIKE '%SPX%' OR UPPER(COALESCE(carrier_name, '')) LIKE '%GHN%' OR UPPER(COALESCE(carrier_name, '')) LIKE '%VIETTEL%' OR UPPER(COALESCE(carrier_name, '')) LIKE '%VTP%' OR UPPER(COALESCE(carrier_name, '')) LIKE '%BEST%')",
         "time_col": "handover_time",
         "order_col": "order_no",
         "qty_col": "1",
@@ -1303,6 +1304,85 @@ def fetch_stage_data(stage_key: str, cache_version: float = 0.0):
         df['total_orders'] = df['total_orders'].fillna(0).astype(int)
 
     return df
+
+
+TARGET_CARRIERS = [
+    'J&T Express',
+    'Shopee Xpress',
+    'GHN',
+    'BEST Express',
+    'Viettel Post',
+    'J&T Cargo'
+]
+
+CARRIER_COLORS = {
+    'J&T Express': '#ef4444',
+    'Shopee Xpress': '#f97316',
+    'GHN': '#10b981',
+    'BEST Express': '#3b82f6',
+    'Viettel Post': '#dc2626',
+    'J&T Cargo': '#8b5cf6',
+}
+
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_handover_data(cache_version: float = 0.0) -> pd.DataFrame:
+    """Truy vấn dữ liệu bàn giao gom nhóm theo ngày, giờ, carrier chuẩn hóa, khách hàng từ BigQuery."""
+    client, error = get_bigquery_client()
+    if error or client is None:
+        return pd.DataFrame()
+
+    sql = f"""
+    SELECT 
+        DATE(handover_time) as op_date,
+        EXTRACT(HOUR FROM handover_time) as op_hour,
+        CASE 
+            WHEN UPPER(COALESCE(carrier_name, '')) LIKE '%J&T%' AND UPPER(COALESCE(carrier_name, '')) LIKE '%CARGO%' THEN 'J&T Cargo'
+            WHEN UPPER(COALESCE(carrier_name, '')) LIKE '%J&T%' THEN 'J&T Express'
+            WHEN UPPER(COALESCE(carrier_name, '')) LIKE '%SHOPEE%' OR UPPER(COALESCE(carrier_name, '')) LIKE '%SPX%' THEN 'Shopee Xpress'
+            WHEN UPPER(COALESCE(carrier_name, '')) LIKE '%GHN%' THEN 'GHN'
+            WHEN UPPER(COALESCE(carrier_name, '')) LIKE '%VIETTEL%' OR UPPER(COALESCE(carrier_name, '')) LIKE '%VTP%' THEN 'Viettel Post'
+            WHEN UPPER(COALESCE(carrier_name, '')) LIKE '%BEST%' THEN 'BEST Express'
+            ELSE NULL
+        END as carrier_name,
+        CASE 
+            WHEN UPPER(COALESCE(owner_name, '')) LIKE '%CHINT%' THEN 'CHINT'
+            WHEN UPPER(COALESCE(owner_name, '')) LIKE '%JINHE%' OR UPPER(COALESCE(owner_name, '')) LIKE '%KKV%' THEN 'KKV'
+            WHEN UPPER(COALESCE(owner_name, '')) LIKE '%ENVISION%' THEN 'ENVISION'
+            ELSE COALESCE(owner_name, 'Chưa xác định')
+        END as owner_name,
+        CASE 
+            WHEN UPPER(COALESCE(owner_name, '')) LIKE '%CHINT%' 
+              OR UPPER(COALESCE(owner_name, '')) LIKE '%JINHE%' 
+              OR UPPER(COALESCE(owner_name, '')) LIKE '%KKV%' 
+              OR UPPER(COALESCE(owner_name, '')) LIKE '%ENVISION%' THEN 'B2B'
+            ELSE 'B2C'
+        END as customer_type,
+        COUNT(DISTINCT order_no) as total_orders
+    FROM `{PROJECT_ID}.{DATASET_ID}.fact_handover`
+    WHERE handover_time IS NOT NULL 
+      AND (
+          UPPER(COALESCE(carrier_name, '')) LIKE '%J&T%'
+          OR UPPER(COALESCE(carrier_name, '')) LIKE '%SHOPEE%'
+          OR UPPER(COALESCE(carrier_name, '')) LIKE '%SPX%'
+          OR UPPER(COALESCE(carrier_name, '')) LIKE '%GHN%'
+          OR UPPER(COALESCE(carrier_name, '')) LIKE '%VIETTEL%'
+          OR UPPER(COALESCE(carrier_name, '')) LIKE '%VTP%'
+          OR UPPER(COALESCE(carrier_name, '')) LIKE '%BEST%'
+      )
+    GROUP BY op_date, op_hour, carrier_name, owner_name, customer_type
+    HAVING carrier_name IS NOT NULL
+    ORDER BY op_date DESC, op_hour ASC
+    """
+    try:
+        df = client.query(sql).to_dataframe()
+        if not df.empty:
+            df['op_date'] = pd.to_datetime(df['op_date']).dt.date
+            df['op_hour'] = df['op_hour'].fillna(0).astype(int)
+            df['total_orders'] = df['total_orders'].fillna(0).astype(int)
+            df['total_qty'] = df['total_orders']
+        return df
+    except Exception:
+        return pd.DataFrame()
 
 
 # Bảng benchmark UPH theo từng Thứ trong tuần (DOW)
@@ -4021,6 +4101,343 @@ def render_inventory_dashboard(df_inventory: pd.DataFrame, cust_type: str, cust_
 
 
 
+def render_handover_dashboard(df_handover: pd.DataFrame, cust_type: str, cust_name: str, start_date: datetime.date, end_date: datetime.date, t: dict, lang: str, start_time: datetime.time = datetime.time(0, 0), end_time: datetime.time = datetime.time(23, 59)):
+    """
+    Dashboard chuyên biệt cho khâu BÀN GIAO:
+    Tập trung vào 6 Đơn vị vận chuyển (Carriers):
+    - J&T Express
+    - J&T Cargo
+    - Shopee Xpress
+    - GHN
+    - Viettel Post (gộp chung các dịch vụ VTP)
+    - BEST Express
+    """
+    if df_handover.empty:
+        st.info("Chưa có dữ liệu bàn giao trong cơ sở dữ liệu.")
+        return
+
+    tab_day, tab_week, tab_month = st.tabs([
+        t.get('tab_day', 'Ngày'),
+        t.get('tab_week', 'Tuần'),
+        t.get('tab_month', 'Tháng')
+    ])
+
+    with tab_day:
+        # Lọc dữ liệu theo điều kiện
+        df = df_handover.copy()
+        df = filter_by_date_range(df, start_date, end_date, start_time, end_time)
+        df = filter_by_customer(df, cust_type, cust_name)
+
+        if df.empty:
+            st.warning(t.get('no_data', 'Không tìm thấy dữ liệu bàn giao phù hợp.'))
+        else:
+            tot_orders = int(df['total_orders'].sum())
+            active_carriers = df['carrier_name'].nunique()
+
+            # Xếp hạng Carrier
+            carrier_agg = df.groupby('carrier_name')['total_orders'].sum().sort_values(ascending=False)
+            top1_carrier = carrier_agg.index[0] if len(carrier_agg) > 0 else "Chưa có"
+            top1_val = int(carrier_agg.iloc[0]) if len(carrier_agg) > 0 else 0
+            top1_pct = (top1_val / tot_orders * 100) if tot_orders > 0 else 0
+
+            top2_carrier = carrier_agg.index[1] if len(carrier_agg) > 1 else "-"
+            top2_val = int(carrier_agg.iloc[1]) if len(carrier_agg) > 1 else 0
+            top2_pct = (top2_val / tot_orders * 100) if tot_orders > 0 else 0
+
+            # 4 Thẻ KPI chính
+            c1, c2, c3, c4 = st.columns(4)
+            with c1:
+                st.markdown(f"""
+                <div class="kpi-card">
+                    <div class="kpi-label">TỔNG ĐƠN BÀN GIAO</div>
+                    <div class="kpi-value" style="color: #38bdf8;">{tot_orders:,} <span style="font-size: 13px; color: #94a3b8;">đơn</span></div>
+                    <div class="kpi-delta delta-neutral">• Đã giao cho đơn vị vận chuyển</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with c2:
+                st.markdown(f"""
+                <div class="kpi-card">
+                    <div class="kpi-label">TOP 1: {top1_carrier.upper()}</div>
+                    <div class="kpi-value" style="color: #f59e0b;">{top1_val:,} <span style="font-size: 13px; color: #94a3b8;">đơn</span></div>
+                    <div class="kpi-delta delta-neutral">• Chiếm {top1_pct:.1f}% tổng sản lượng</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with c3:
+                st.markdown(f"""
+                <div class="kpi-card">
+                    <div class="kpi-label">TOP 2: {top2_carrier.upper()}</div>
+                    <div class="kpi-value" style="color: #60a5fa;">{top2_val:,} <span style="font-size: 13px; color: #94a3b8;">đơn</span></div>
+                    <div class="kpi-delta delta-neutral">• Chiếm {top2_pct:.1f}% tổng sản lượng</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with c4:
+                st.markdown(f"""
+                <div class="kpi-card">
+                    <div class="kpi-label">ĐỐI TÁC VẬN CHUYỂN</div>
+                    <div class="kpi-value" style="color: #10b981;">{active_carriers} <span style="font-size: 13px; color: #94a3b8;">/ 6 hãng</span></div>
+                    <div class="kpi-delta delta-neutral">• Đang phát sinh lấy hàng</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            # PHẦN 1: TỔNG HỢP & TỈ TRỌNG SỐ ĐƠN THEO ĐƠN VỊ VẬN CHUYỂN (CARRIER)
+            st.markdown('<div class="chart-title-banner">TỔNG HỢP & TỈ TRỌNG BÀN GIAO THEO ĐƠN VỊ VẬN CHUYỂN (CARRIER)</div>', unsafe_allow_html=True)
+            col_tbl, col_chart = st.columns([1.3, 1.0])
+            with col_tbl:
+                df_carrier_summary = carrier_agg.reset_index()
+                df_carrier_summary.columns = ['Đơn vị vận chuyển', 'Số đơn bàn giao']
+                df_carrier_summary['Tỉ trọng (%)'] = (df_carrier_summary['Số đơn bàn giao'] / tot_orders * 100).apply(lambda x: f"{x:.2f}%")
+                
+                tot_c_row = pd.DataFrame([{
+                    'Đơn vị vận chuyển': 'TỔNG CỘNG',
+                    'Số đơn bàn giao': tot_orders,
+                    'Tỉ trọng (%)': '100.0%'
+                }])
+                df_carrier_display = pd.concat([df_carrier_summary, tot_c_row], ignore_index=True)
+                df_carrier_formatted = df_carrier_display.copy()
+                df_carrier_formatted['Số đơn bàn giao'] = df_carrier_formatted['Số đơn bàn giao'].apply(lambda x: f"{x:,}")
+                st.dataframe(df_carrier_formatted, width="stretch", height=min(290, 42 * len(df_carrier_formatted) + 40), hide_index=True)
+
+                col_dl_c, _ = st.columns([2, 1])
+                with col_dl_c:
+                    csv_c_bytes = df_carrier_display.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
+                    st.download_button(
+                        label="Tải bảng tổng hợp carrier (.csv)",
+                        data=csv_c_bytes,
+                        file_name=f"handover_carrier_summary_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}.csv",
+                        mime="text/csv",
+                        use_container_width=True,
+                        key="btn_dl_handover_carrier_sum"
+                    )
+
+            with col_chart:
+                fig_donut = px.pie(
+                    df_carrier_summary,
+                    values='Số đơn bàn giao',
+                    names='Đơn vị vận chuyển',
+                    hole=0.48,
+                    template="plotly_dark",
+                    color='Đơn vị vận chuyển',
+                    color_discrete_map=CARRIER_COLORS
+                )
+                fig_donut.update_traces(textposition='inside', textinfo='percent+label', insidetextorientation='radial')
+                fig_donut.update_layout(
+                    title=None,
+                    paper_bgcolor="#1e293b",
+                    plot_bgcolor="#0f172a",
+                    margin=dict(l=10, r=10, t=10, b=30),
+                    showlegend=False,
+                    height=270
+                )
+                st.plotly_chart(fig_donut, use_container_width=True)
+
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            # PHẦN 2: MA TRẬN PHÂN BỔ SỐ ĐƠN BÀN GIAO THEO KHUNG GIỜ (CARRIER X GIỜ)
+            fmt_d1 = start_date.strftime('%d/%m/%Y')
+            fmt_d2 = end_date.strftime('%d/%m/%Y')
+            date_range_label = fmt_d1 if start_date == end_date else f"{fmt_d1} — {fmt_d2}"
+            time_range_label = f" ({start_time.strftime('%H:%M')} — {end_time.strftime('%H:%M')})"
+            st.markdown(f'<div class="chart-title-banner">PHÂN BỔ SỐ ĐƠN BÀN GIAO THEO TỪNG KHUNG GIỜ (THEO ĐƠN VỊ VẬN CHUYỂN) — {date_range_label}{time_range_label}</div>', unsafe_allow_html=True)
+
+            pivot_carrier_hour = df.pivot_table(
+                index='carrier_name',
+                columns='op_hour',
+                values='total_orders',
+                aggfunc='sum',
+                fill_value=0
+            )
+            raw_h_cols = [c for c in pivot_carrier_hour.columns if isinstance(c, (int, float, np.integer)) or str(c).isdigit()]
+            active_h = [int(h) for h in raw_h_cols if pivot_carrier_hour[h].sum() > 0]
+            display_h = get_shift_ordered_hours(active_h, start_time.hour, end_time.hour)
+
+            if display_h:
+                pivot_carrier_hour = pivot_carrier_hour.reindex(columns=display_h, fill_value=0)
+                pivot_carrier_hour['TỔNG ĐƠN'] = pivot_carrier_hour.sum(axis=1)
+                pivot_carrier_hour = pivot_carrier_hour.sort_values(by='TỔNG ĐƠN', ascending=False)
+
+                tot_h_dict = {'carrier_name': 'TỔNG CỘNG'}
+                for h in display_h:
+                    tot_h_dict[h] = int(pivot_carrier_hour[h].sum())
+                tot_h_dict['TỔNG ĐƠN'] = int(pivot_carrier_hour['TỔNG ĐƠN'].sum())
+
+                rename_h = {h: f"{h:02d}:00" for h in display_h}
+                pivot_carrier_hour_renamed = pivot_carrier_hour.rename(columns=rename_h).reset_index()
+                pivot_carrier_hour_renamed.rename(columns={'carrier_name': 'Đơn vị vận chuyển'}, inplace=True)
+                
+                tot_row_h = pd.DataFrame([tot_h_dict]).rename(columns=rename_h)
+                tot_row_h.rename(columns={'carrier_name': 'Đơn vị vận chuyển'}, inplace=True)
+                
+                pivot_carrier_hour_disp = pd.concat([pivot_carrier_hour_renamed, tot_row_h], ignore_index=True)
+                for col in pivot_carrier_hour_disp.columns:
+                    if col != 'Đơn vị vận chuyển':
+                        pivot_carrier_hour_disp[col] = pivot_carrier_hour_disp[col].apply(lambda x: f"{x:,}" if x > 0 else "-")
+
+                st.dataframe(pivot_carrier_hour_disp, width="stretch", height=min(320, 42 * len(pivot_carrier_hour_disp) + 40), hide_index=True)
+
+                col_dl_h, _ = st.columns([1.5, 2.5])
+                with col_dl_h:
+                    csv_h_bytes = pivot_carrier_hour_disp.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
+                    st.download_button(
+                        label="Tải bảng bàn giao theo giờ (.csv)",
+                        data=csv_h_bytes,
+                        file_name=f"handover_carrier_hourly_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}.csv",
+                        mime="text/csv",
+                        use_container_width=True,
+                        key="btn_dl_handover_carrier_hourly"
+                    )
+            else:
+                st.info("Không có dữ liệu bàn giao theo giờ trong khoảng thời gian đã chọn.")
+
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            # PHẦN 3: CHI TIẾT SỐ ĐƠN BÀN GIAO CỦA TỪNG KHÁCH HÀNG THEO ĐƠN VỊ VẬN CHUYỂN
+            st.markdown('<div class="chart-title-banner">CHI TIẾT SỐ ĐƠN BÀN GIAO CỦA TỪNG KHÁCH HÀNG THEO ĐƠN VỊ VẬN CHUYỂN</div>', unsafe_allow_html=True)
+            pivot_cust_c = df.pivot_table(
+                index='owner_name',
+                columns='carrier_name',
+                values='total_orders',
+                aggfunc='sum',
+                fill_value=0
+            )
+            c_cols = [c for c in TARGET_CARRIERS if c in pivot_cust_c.columns]
+            if c_cols:
+                pivot_cust_c = pivot_cust_c[c_cols]
+                pivot_cust_c['TỔNG ĐƠN'] = pivot_cust_c.sum(axis=1)
+                pivot_cust_c = pivot_cust_c.sort_values(by='TỔNG ĐƠN', ascending=False).reset_index()
+
+                tot_cust_dict = {'owner_name': 'TỔNG CỘNG'}
+                for c in c_cols:
+                    tot_cust_dict[c] = int(pivot_cust_c[c].sum())
+                tot_cust_dict['TỔNG ĐƠN'] = int(pivot_cust_c['TỔNG ĐƠN'].sum())
+
+                pivot_cust_c_disp = pd.concat([pivot_cust_c, pd.DataFrame([tot_cust_dict])], ignore_index=True)
+                pivot_cust_c_disp.rename(columns={'owner_name': 'Khách hàng'}, inplace=True)
+                for col in c_cols + ['TỔNG ĐƠN']:
+                    pivot_cust_c_disp[col] = pivot_cust_c_disp[col].apply(lambda x: f"{x:,}" if x > 0 else "-")
+
+                st.dataframe(pivot_cust_c_disp, width="stretch", height=min(450, 42 * len(pivot_cust_c_disp) + 40), hide_index=True)
+
+                col_dl_cust, _ = st.columns([1.5, 2.5])
+                with col_dl_cust:
+                    csv_cust_c_bytes = pivot_cust_c_disp.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
+                    st.download_button(
+                        label="Tải bảng chi tiết khách hàng x carrier (.csv)",
+                        data=csv_cust_c_bytes,
+                        file_name=f"handover_customer_x_carrier_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}.csv",
+                        mime="text/csv",
+                        use_container_width=True,
+                        key="btn_dl_handover_cust_carrier"
+                    )
+
+    with tab_week:
+        # PHÂN TÍCH THEO TUẦN CHO 6 CARRIERS
+        df_w = df_handover.copy()
+        df_w = filter_by_customer(df_w, cust_type, cust_name)
+
+        if df_w.empty:
+            st.warning(t.get('no_data', 'Không tìm thấy dữ liệu.'))
+        else:
+            df_w['op_date'] = pd.to_datetime(df_w['op_date'])
+            df_w['week_start'] = df_w['op_date'].dt.to_period('W-SUN').dt.start_time.dt.date
+
+            pivot_w = df_w.pivot_table(
+                index='week_start',
+                columns='carrier_name',
+                values='total_orders',
+                aggfunc='sum',
+                fill_value=0
+            ).sort_index()
+
+            c_cols_w = [c for c in TARGET_CARRIERS if c in pivot_w.columns]
+            pivot_w = pivot_w[c_cols_w]
+            pivot_w['TỔNG ĐƠN'] = pivot_w.sum(axis=1)
+
+            st.markdown('<div class="chart-title-banner">XU HƯỚNG BÀN GIAO THEO TUẦN (PHÂN BỔ THEO CARRIER)</div>', unsafe_allow_html=True)
+            
+            fig_w_stack = go.Figure()
+            for c in c_cols_w:
+                fig_w_stack.add_trace(go.Bar(
+                    x=[f"Tuần {d.strftime('%W')} ({d.strftime('%d/%m')})" for d in pivot_w.index],
+                    y=pivot_w[c],
+                    name=c,
+                    marker_color=CARRIER_COLORS.get(c, '#94a3b8')
+                ))
+            fig_w_stack.update_layout(
+                barmode='stack',
+                template="plotly_dark",
+                paper_bgcolor="#1e293b",
+                plot_bgcolor="#0f172a",
+                margin=dict(l=30, r=30, t=10, b=50),
+                legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="center", x=0.5),
+                height=350
+            )
+            st.plotly_chart(fig_w_stack, use_container_width=True)
+
+            pivot_w_disp = pivot_w.reset_index()
+            pivot_w_disp['week_start'] = pivot_w_disp['week_start'].apply(lambda d: f"Tuần {d.strftime('%W')} ({d.strftime('%d/%m/%Y')})")
+            pivot_w_disp.rename(columns={'week_start': 'Tuần (Bắt đầu)'}, inplace=True)
+            for col in c_cols_w + ['TỔNG ĐƠN']:
+                pivot_w_disp[col] = pivot_w_disp[col].apply(lambda x: f"{x:,}")
+
+            st.dataframe(pivot_w_disp, width="stretch", hide_index=True)
+
+    with tab_month:
+        # PHÂN TÍCH THEO THÁNG CHO 6 CARRIERS
+        df_m = df_handover.copy()
+        df_m = filter_by_customer(df_m, cust_type, cust_name)
+
+        if df_m.empty:
+            st.warning(t.get('no_data', 'Không tìm thấy dữ liệu.'))
+        else:
+            df_m['op_date'] = pd.to_datetime(df_m['op_date'])
+            df_m['month_label'] = df_m['op_date'].dt.strftime('%m/%Y')
+            df_m['month_sort'] = df_m['op_date'].dt.strftime('%Y-%m')
+
+            pivot_m = df_m.pivot_table(
+                index=['month_sort', 'month_label'],
+                columns='carrier_name',
+                values='total_orders',
+                aggfunc='sum',
+                fill_value=0
+            ).sort_index()
+
+            c_cols_m = [c for c in TARGET_CARRIERS if c in pivot_m.columns]
+            pivot_m = pivot_m[c_cols_m]
+            pivot_m['TỔNG ĐƠN'] = pivot_m.sum(axis=1)
+
+            st.markdown('<div class="chart-title-banner">XU HƯỚNG BÀN GIAO THEO THÁNG (PHÂN BỔ THEO CARRIER)</div>', unsafe_allow_html=True)
+
+            months_x = [idx[1] for idx in pivot_m.index]
+            fig_m_stack = go.Figure()
+            for c in c_cols_m:
+                fig_m_stack.add_trace(go.Bar(
+                    x=months_x,
+                    y=pivot_m[c],
+                    name=c,
+                    marker_color=CARRIER_COLORS.get(c, '#94a3b8')
+                ))
+            fig_m_stack.update_layout(
+                barmode='stack',
+                template="plotly_dark",
+                paper_bgcolor="#1e293b",
+                plot_bgcolor="#0f172a",
+                margin=dict(l=30, r=30, t=10, b=50),
+                legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="center", x=0.5),
+                height=350
+            )
+            st.plotly_chart(fig_m_stack, use_container_width=True)
+
+            pivot_m_disp = pivot_m.reset_index(level=1)
+            pivot_m_disp.rename(columns={'month_label': 'Tháng'}, inplace=True)
+            for col in c_cols_m + ['TỔNG ĐƠN']:
+                pivot_m_disp[col] = pivot_m_disp[col].apply(lambda x: f"{x:,}")
+
+            st.dataframe(pivot_m_disp, width="stretch", hide_index=True)
+
+
+
 # ==========================================
 # FRAGMENT WRAPPERS (AUTO-REFRESH VỚI SCROLL PRESERVATION)
 # ==========================================
@@ -4096,6 +4513,13 @@ def render_summary_fragment(selected_cust_type, selected_cust_name, start_date, 
 @st.fragment(run_every="30s")
 def render_planning_fragment(selected_cust_type, selected_cust_name, start_date, end_date, t, lang):
     render_headcount_planning(selected_cust_type, selected_cust_name, start_date, end_date, t, lang)
+
+@st.fragment(run_every="15s")
+def render_handover_fragment(selected_cust_type, selected_cust_name, start_date, end_date, t, lang, start_time=datetime.time(0, 0), end_time=datetime.time(23, 59)):
+    sync_st = get_global_sync_state()
+    cur_v = sync_st.get("data_version", 0.0)
+    df_hnd = fetch_handover_data(cache_version=cur_v)
+    render_handover_dashboard(df_hnd, selected_cust_type, selected_cust_name, start_date, end_date, t, lang, start_time, end_time)
 
 # ==========================================
 # MAIN APPLICATION CONTROLLER
@@ -4188,6 +4612,13 @@ def main():
         with st.spinner("..."):
             try:
                 df_inventory = fetch_inventory_data(cache_version=cur_v_main)
+            except Exception as ex:
+                st.error(str(ex))
+                return
+    elif cur_cfg.get("type") == "handover":
+        with st.spinner("..."):
+            try:
+                df_raw = fetch_handover_data(cache_version=cur_v_main)
             except Exception as ex:
                 st.error(str(ex))
                 return
@@ -4405,6 +4836,8 @@ def main():
         render_summary_fragment(selected_cust_type, selected_cust_name, start_date, end_date, t, lang, start_time, end_time)
     elif cur_cfg.get("type") == "inventory":
         render_inventory_fragment(selected_cust_type, selected_cust_name, start_date, end_date, t, lang, start_time, end_time)
+    elif cur_cfg.get("type") == "handover":
+        render_handover_fragment(selected_cust_type, selected_cust_name, start_date, end_date, t, lang, start_time, end_time)
     else:
         tab_day, tab_week, tab_month = st.tabs([
             t['tab_day'],
