@@ -177,6 +177,64 @@ def get_latest_sync_timestamp():
     return None
 
 SYNC_LOCK = threading.Lock()
+SYNC_TRIGGER_EVENT = threading.Event()
+
+def do_sync_cycle(is_full: bool = False) -> dict:
+    """Thực hiện một chu kỳ quét đồng bộ từ Google Drive lên BigQuery."""
+    try:
+        import importlib
+        import sync_wms_local
+        importlib.reload(sync_wms_local)
+        _get_creds = sync_wms_local.get_credentials
+        _run_cycle = sync_wms_local.run_sync_cycle
+        _build = sync_wms_local.build
+        _bq_mod = sync_wms_local.bigquery
+        _sync_proj = sync_wms_local.PROJECT_ID
+    except Exception:
+        _get_creds = get_sync_credentials
+        _run_cycle = run_sync_cycle
+        _build = build_service
+        _bq_mod = bq_module
+        _sync_proj = SYNC_PROJECT_ID
+
+    creds = _get_creds()
+    drive_svc = _build("drive", "v3", credentials=creds, cache_discovery=False)
+    sync_proj = getattr(creds, "project_id", None) or _sync_proj
+    if hasattr(st, "secrets") and "gcp_service_account" in st.secrets:
+        sync_proj = st.secrets["gcp_service_account"].get("project_id", sync_proj)
+    bq_client = _bq_mod.Client(credentials=creds, project=sync_proj)
+
+    return _run_cycle(drive_svc, bq_client, is_full=is_full, dry_run=False, folder=None)
+
+def trigger_manual_sync():
+    """Kích hoạt quét đồng bộ Google Drive ngay lập tức khi người dùng bấm nút Làm mới."""
+    sync_state = get_global_sync_state()
+    if sync_state.get("is_running"):
+        return False, "Hệ thống đang trong tiến trình đồng bộ dữ liệu, vui lòng đợi trong giây lát!"
+
+    acquired = SYNC_LOCK.acquire(blocking=False)
+    if not acquired:
+        return False, "Hệ thống đang quét dữ liệu từ Google Drive, vui lòng đợi trong giây lát!"
+
+    try:
+        sync_state["is_running"] = True
+        res = do_sync_cycle(is_full=False)
+        now_vn = datetime.datetime.now(timezone(timedelta(hours=7)))
+        sync_state["last_sync"] = now_vn.strftime("%H:%M:%S %d/%m/%Y")
+        st.cache_data.clear()
+        sync_state["data_version"] = time.time()
+        sync_state["error"] = None
+        if isinstance(res, dict):
+            sync_state["synced_count"] = res.get("synced", 0)
+            sync_state["skipped_count"] = res.get("skipped", 0)
+            return True, res
+        return True, {"synced": 0, "skipped": 0}
+    except Exception as err:
+        sync_state["error"] = str(err)
+        return False, str(err)
+    finally:
+        sync_state["is_running"] = False
+        SYNC_LOCK.release()
 
 def background_sync_worker():
     """Luồng ngầm định kỳ quét và nạp file mới từ Google Drive lên BigQuery mỗi 300 giây (5 phút)."""
@@ -190,51 +248,29 @@ def background_sync_worker():
 
     while True:
         try:
-            sync_state["is_running"] = True
-            try:
-                import importlib
-                import sync_wms_local
-                importlib.reload(sync_wms_local)
-                _get_creds = sync_wms_local.get_credentials
-                _run_cycle = sync_wms_local.run_sync_cycle
-                _build = sync_wms_local.build
-                _bq_mod = sync_wms_local.bigquery
-                _sync_proj = sync_wms_local.PROJECT_ID
-            except Exception:
-                _get_creds = get_sync_credentials
-                _run_cycle = run_sync_cycle
-                _build = build_service
-                _bq_mod = bq_module
-                _sync_proj = SYNC_PROJECT_ID
-
-            creds = _get_creds()
-            drive_svc = _build("drive", "v3", credentials=creds, cache_discovery=False)
-            sync_proj = getattr(creds, "project_id", None) or _sync_proj
-            if hasattr(st, "secrets") and "gcp_service_account" in st.secrets:
-                sync_proj = st.secrets["gcp_service_account"].get("project_id", sync_proj)
-            bq_client = _bq_mod.Client(credentials=creds, project=sync_proj)
-
-            # Chạy Quick sync (is_full_sync=False, dry_run=False, folder=None)
-            res = _run_cycle(drive_svc, bq_client, is_full=False, dry_run=False, folder=None)
-            now_vn = datetime.datetime.now(timezone(timedelta(hours=7)))
-            sync_state["last_sync"] = now_vn.strftime("%H:%M:%S %d/%m/%Y")
-            if isinstance(res, dict):
-                sync_state["synced_count"] = res.get("synced", 0)
-                sync_state["skipped_count"] = res.get("skipped", 0)
-                if res.get("synced", 0) > 0:
-                    try:
-                        st.cache_data.clear()
-                    except Exception:
-                        pass
-                    sync_state["data_version"] = time.time()
-            sync_state["error"] = None
+            with SYNC_LOCK:
+                sync_state["is_running"] = True
+                res = do_sync_cycle(is_full=False)
+                now_vn = datetime.datetime.now(timezone(timedelta(hours=7)))
+                sync_state["last_sync"] = now_vn.strftime("%H:%M:%S %d/%m/%Y")
+                if isinstance(res, dict):
+                    sync_state["synced_count"] = res.get("synced", 0)
+                    sync_state["skipped_count"] = res.get("skipped", 0)
+                    if res.get("synced", 0) > 0:
+                        try:
+                            st.cache_data.clear()
+                        except Exception:
+                            pass
+                        sync_state["data_version"] = time.time()
+                sync_state["error"] = None
         except Exception as err:
             sync_state["error"] = str(err)
         finally:
             sync_state["is_running"] = False
 
-        # Nghỉ đúng 300 giây (5 phút) trước lần quét kế tiếp
-        time.sleep(300)
+        # Nghỉ đúng 300 giây (5 phút) trước lần quét kế tiếp, có thể đánh thức bằng event
+        SYNC_TRIGGER_EVENT.wait(timeout=300)
+        SYNC_TRIGGER_EVENT.clear()
 
 def ensure_background_sync_started():
     """Khởi tạo background thread duy nhất cho toàn bộ app."""
@@ -4471,8 +4507,17 @@ def render_sidebar_sync_status_fragment(t):
     """, unsafe_allow_html=True)
 
     if st.button("🔄 " + t.get("btn_refresh", "Làm mới dữ liệu"), key="btn_sidebar_refresh", use_container_width=True):
-        st.cache_data.clear()
-        sync_state["data_version"] = time.time()
+        with st.spinner("🔄 Đang quét trực tiếp Google Drive & cập nhật dữ liệu..."):
+            success, res = trigger_manual_sync()
+            if success:
+                synced_cnt = res.get("synced", 0) if isinstance(res, dict) else 0
+                if synced_cnt > 0:
+                    st.toast(f"✅ Đã quét xong: Nạp mới thành công {synced_cnt} file từ Google Drive!", icon="🎉")
+                else:
+                    st.toast("⚡ Dữ liệu đã là mới nhất! Không có file mới nào trên Google Drive.", icon="✅")
+            else:
+                st.toast(f"ℹ️ {res}", icon="⚠️")
+        time.sleep(1)
         st.rerun()
 
 @st.fragment(run_every="15s")

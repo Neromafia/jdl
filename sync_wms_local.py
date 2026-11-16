@@ -322,6 +322,46 @@ def get_owner_customer_type(owner_name) -> str:
         return "B2B"
     return "B2C"
 
+def transform_df_for_stage(df_in, stage_cfg, bq_client):
+    """Ánh xạ cột và chuẩn hóa kiểu dữ liệu cho một stage cụ thể."""
+    df = df_in.copy()
+    def _norm_col(s):
+        return re.sub(r'[^a-zA-Z0-9]', '', str(s)).lower()
+
+    if stage_cfg.get("column_mapping"):
+        norm_mapping = {_norm_col(k): v for k, v in stage_cfg["column_mapping"].items()}
+        rename_dict = {}
+        for col in df.columns:
+            key = _norm_col(col)
+            if key in norm_mapping:
+                rename_dict[col] = norm_mapping[key]
+        df = df.rename(columns=rename_dict)
+
+    if "owner_name" in df.columns:
+        df["customer_type"] = df["owner_name"].apply(get_owner_customer_type)
+
+    if stage_cfg["folder_name"] == "INVENTORY":
+        if "system_qty" in df.columns:
+            df["system_qty"] = pd.to_numeric(df["system_qty"], errors="coerce").fillna(0).astype(int)
+        if "difference_qty" in df.columns:
+            df["difference_qty"] = pd.to_numeric(df["difference_qty"], errors="coerce").fillna(0).astype(int)
+        if "system_qty" in df.columns and "difference_qty" in df.columns:
+            df["actual_qty"] = df["system_qty"] - df["difference_qty"]
+
+    if stage_cfg["folder_name"] == "BACKLOG":
+        if "piece_qty" in df.columns:
+            df["piece_qty"] = pd.to_numeric(df["piece_qty"], errors="coerce").fillna(0).astype(float)
+        if "received_time" not in df.columns or df["received_time"].isnull().all():
+            df["received_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    df.columns = [re.sub(r'[^a-zA-Z0-9_]', '_', c) for c in df.columns]
+
+    target = bq_client.get_table(f"{PROJECT_ID}.{DATASET_ID}.{stage_cfg['fact_table']}")
+    target_cols = [f.name for f in target.schema]
+    cols_keep = [c for c in df.columns if c in target_cols]
+
+    return df, cols_keep, target
+
 def sync_folder(cfg, drive_svc, bq_client, processed_map, is_full_sync, dry_run, only_folder):
     folder_name = cfg["folder_name"]
     if only_folder and only_folder.upper() != folder_name.upper():
@@ -391,50 +431,32 @@ def sync_folder(cfg, drive_svc, bq_client, processed_map, is_full_sync, dry_run,
                     df = pd.read_excel(fh, sheet_name=0)
 
             df.columns = [str(c).strip() for c in df.columns]
-            _original_columns_for_debug = list(df.columns)
+            df_raw_loaded = df.copy()
 
-            if cfg.get("column_mapping"):
-                def _norm_col(s):
-                    return re.sub(r'[^a-zA-Z0-9]', '', str(s)).lower()
+            active_cfg = cfg
+            df, cols_keep, target = transform_df_for_stage(df_raw_loaded, active_cfg, bq_client)
 
-                norm_mapping = {_norm_col(k): v for k, v in cfg["column_mapping"].items()}
-                rename_dict = {}
-                for col in df.columns:
-                    key = _norm_col(col)
-                    if key in norm_mapping:
-                        rename_dict[col] = norm_mapping[key]
-                df = df.rename(columns=rename_dict)
+            # Tự động nhận diện nếu file bị tải nhầm thư mục (ví dụ file Đóng gói up vào Lấy hàng)
+            if not cols_keep or active_cfg["time_col"] not in cols_keep:
+                detected_cfg = None
+                for alt_cfg in FOLDERS_CONFIG:
+                    if alt_cfg["folder_name"] == cfg["folder_name"]:
+                        continue
+                    test_df, test_cols, test_target = transform_df_for_stage(df_raw_loaded, alt_cfg, bq_client)
+                    if test_cols and alt_cfg["time_col"] in test_cols:
+                        detected_cfg = alt_cfg
+                        df, cols_keep, target = test_df, test_cols, test_target
+                        break
 
-            if "owner_name" in df.columns:
-                df["customer_type"] = df["owner_name"].apply(get_owner_customer_type)
-
-            if cfg["folder_name"] == "INVENTORY":
-                if "system_qty" in df.columns:
-                    df["system_qty"] = pd.to_numeric(df["system_qty"], errors="coerce").fillna(0).astype(int)
-                if "difference_qty" in df.columns:
-                    df["difference_qty"] = pd.to_numeric(df["difference_qty"], errors="coerce").fillna(0).astype(int)
-                if "system_qty" in df.columns and "difference_qty" in df.columns:
-                    df["actual_qty"] = df["system_qty"] - df["difference_qty"]
-
-            if cfg["folder_name"] == "BACKLOG":
-                if "piece_qty" in df.columns:
-                    df["piece_qty"] = pd.to_numeric(df["piece_qty"], errors="coerce").fillna(0).astype(float)
-                if "received_time" not in df.columns or df["received_time"].isnull().all():
-                    df["received_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-            import re as _re
-            df.columns = [_re.sub(r'[^a-zA-Z0-9_]', '_', c) for c in df.columns]
-
-            target = bq_client.get_table(f"{PROJECT_ID}.{DATASET_ID}.{cfg['fact_table']}")
-            target_cols = [f.name for f in target.schema]
-            cols_keep = [c for c in df.columns if c in target_cols]
-            if not cols_keep:
-                print(f"⚠️ Không khớp cột nào — bỏ qua")
-                continue
-
-            if cfg["time_col"] not in cols_keep:
-                print(f"❌ Thiếu cột thời gian '{cfg['time_col']}' sau khi map.")
-                continue
+                if detected_cfg:
+                    print(f"  ↪️ File thuộc khâu '{detected_cfg['folder_name']}' (bị đặt nhầm vào '{cfg['folder_name']}') -> Tự động chuyển nạp vào {detected_cfg['fact_table']} ... ", end="", flush=True)
+                    active_cfg = detected_cfg
+                else:
+                    if not cols_keep:
+                        print(f"⚠️ Không khớp cột nào — bỏ qua")
+                    else:
+                        print(f"❌ Thiếu cột thời gian '{active_cfg['time_col']}' sau khi map.")
+                    continue
 
             df = df[cols_keep]
 
@@ -443,7 +465,7 @@ def sync_folder(cfg, drive_svc, bq_client, processed_map, is_full_sync, dry_run,
                 df_stg[c] = df_stg[c].astype(str).replace(
                     {"nan": None, "None": None, "<NA>": None, "NaT": None})
 
-            stg_ref = f"{PROJECT_ID}.{DATASET_ID}.{cfg['stg_table']}"
+            stg_ref = f"{PROJECT_ID}.{DATASET_ID}.{active_cfg['stg_table']}"
             job = bq_client.load_table_from_dataframe(
                 df_stg, stg_ref,
                 job_config=bigquery.LoadJobConfig(write_disposition="WRITE_TRUNCATE"))
@@ -451,8 +473,8 @@ def sync_folder(cfg, drive_svc, bq_client, processed_map, is_full_sync, dry_run,
 
             schema_map = {f.name: f.field_type for f in target.schema}
             type_conv  = {"FLOAT": "FLOAT64", "INTEGER": "INT64", "BOOLEAN": "BOOL"}
-            pk_list    = cfg["primary_keys"]
-            time_col   = cfg["time_col"]
+            pk_list    = active_cfg["primary_keys"]
+            time_col   = active_cfg["time_col"]
 
             insert_cols = ", ".join(f"`{c}`" for c in cols_keep)
             insert_vals = ", ".join(
@@ -470,7 +492,7 @@ def sync_folder(cfg, drive_svc, bq_client, processed_map, is_full_sync, dry_run,
 
             pk_partition = ", ".join(f"`{k}`" for k in pk_list)
             merge_sql = f"""
-            MERGE `{PROJECT_ID}.{DATASET_ID}.{cfg['fact_table']}` T
+            MERGE `{PROJECT_ID}.{DATASET_ID}.{active_cfg['fact_table']}` T
             USING (
               SELECT * FROM `{stg_ref}`
               WHERE `{time_col}` IS NOT NULL
@@ -483,12 +505,12 @@ def sync_folder(cfg, drive_svc, bq_client, processed_map, is_full_sync, dry_run,
             WHEN NOT MATCHED THEN
               INSERT ({insert_cols}) VALUES ({insert_vals})
             """
-            if folder_name == "BACKLOG":
+            if active_cfg["folder_name"] == "BACKLOG":
                 # Đối với BACKLOG: Truncate bảng fact_backlog và nạp danh sách đơn mới nhất
                 # để snapshot luôn sạch và loại bỏ các đơn cũ đã được hoàn thành.
-                bq_client.query(f"TRUNCATE TABLE `{PROJECT_ID}.{DATASET_ID}.{cfg['fact_table']}`").result()
+                bq_client.query(f"TRUNCATE TABLE `{PROJECT_ID}.{DATASET_ID}.{active_cfg['fact_table']}`").result()
                 insert_sql = f"""
-                INSERT INTO `{PROJECT_ID}.{DATASET_ID}.{cfg['fact_table']}` ({insert_cols})
+                INSERT INTO `{PROJECT_ID}.{DATASET_ID}.{active_cfg['fact_table']}` ({insert_cols})
                 SELECT {insert_vals}
                 FROM `{stg_ref}` S
                 WHERE `{time_col}` IS NOT NULL
@@ -504,7 +526,7 @@ def sync_folder(cfg, drive_svc, bq_client, processed_map, is_full_sync, dry_run,
             log_sql = f"""
             MERGE `{LOG_TABLE}` L
             USING (SELECT '{fid}' AS file_id,'{fname}' AS file_name,
-                          '{folder_name}' AS folder_name,'{mtime}' AS modified_time,
+                          '{active_cfg["folder_name"]}' AS folder_name,'{mtime}' AS modified_time,
                           {len(df)} AS row_count, CURRENT_TIMESTAMP() AS synced_at) N
             ON L.file_id = N.file_id
             WHEN MATCHED     THEN UPDATE SET L.modified_time=N.modified_time, L.row_count=N.row_count, L.synced_at=N.synced_at
