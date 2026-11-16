@@ -222,6 +222,7 @@ FOLDERS_CONFIG = [
             "Receive Date":        "received_time",
             "JD Inbound NO.":      "order_no",
             "To Be Received QTY.": "piece_qty",
+            "Production End Time": "production_end_time",
         },
     },
 ]

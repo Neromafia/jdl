@@ -487,251 +487,9 @@ TRANSLATIONS = {
         "col_packing_orders": "Số đơn đóng gói",
         "col_packing_qty": "Sản lượng đóng gói (PCS)",
         "btn_download_packing_share": "Tải bảng tỉ trọng đóng gói (.csv)"
-    },
-    "ZH": {
-        "app_title": "仓储管理运营监控看板 - 京东物流",
-        "brand_title": "JingDong Logistics",
-        "lbl_select_warehouse": "运营仓库：",
-        "stages_header": "仓储作业环节",
-        "date_range_header": "对账统计周期",
-        "time_from_header": "起始时段",
-        "time_to_header": "截止时段",
-        "time_range_header": "作业时段",
-        "lbl_from_header": "起始 (FROM)",
-        "lbl_to_header": "截止 (TO)",
-        "lbl_quick_presets": "快捷时段预设 (PRESETS):",
-        "date_range_label": "选择统计区间（起始日期 - 截止日期）：",
-        "btn_today": "今日",
-        "btn_30d": "近30天",
-        "btn_refresh": "刷新数据",
-        "toast_refresh": "已从云端数据库同步最新数据！",
-        "lang_header": "语言选择",
-        "filter_cust_type": "客户类型：",
-        "filter_cust_name": "客户名称：",
-        "all_option": "全部",
-        "status_connected": "数据库已连接",
-        "status_sync": "同步频次：每2小时",
-        "stage_prefix": "环节",
-        "period_prefix": "统计区间",
-        "tab_day": "按日分析（实时小时明细）",
-        "tab_week": "按周分析（周环比分析）",
-        "tab_month": "按月分析（月环比分析）",
-        # Section titles (không icon)
-        "sec_hourly": "按日及各小时作业件数深度分析",
-        "sec_weekly": "周度作业量及周环比变动分析",
-        "sec_monthly": "月度作业量及月环比变动分析",
-        "sec_pipeline": "全仓各作业环节吞吐量综合总览",
-        "sec_backlog": "待入库积压量及大促活动预测看板",
-        # Metric labels
-        "lbl_total_qty": "总作业件数（件）",
-        "lbl_total_orders": "总订单数（单）",
-        "lbl_customers_count": "作业客户数（家）",
-        "lbl_avg_order": "单均件数（件 / 单）",
-        "lbl_selected_period": "所选周期内累计",
-        "lbl_orders_recorded": "已处理订单总量",
-        "lbl_active_partners": "发生产能贡献的货主",
-        "lbl_avg_size": "平均单张订单包裹规模",
-        # Hourly
-        "lbl_choose_date_hourly": "选择查看小时明细的具体日期：",
-        "lbl_display_metric": "图表与明细指标维度：",
-        "opt_qty": "作业件数（件）",
-        "opt_orders": "作业订单数（单）",
-        "lbl_dynamic_table": "各小时客户作业动态交叉表",
-        "lbl_total_column": "合计",
-        "lbl_customer_col": "客户名称",
-        "lbl_chart_hourly": "全天24小时作业件数分布态势",
-        "lbl_hour_axis": "作业时段",
-        "btn_download_hourly": "导出小时报表 (.csv)",
-        # Weekly
-        "lbl_week_this": "本周作业总量",
-        "lbl_week_prev": "上周作业总量",
-        "lbl_week_growth": "周环比增长率",
-        "lbl_week_orders": "本周订单总量",
-        "lbl_week_diff": "环比差值",
-        "lbl_week_table": "周度作业历史汇表明细",
-        "col_week_start": "周起始日",
-        "col_week_name": "统计周次",
-        "col_week_orders": "总订单量（单）",
-        "col_week_qty": "总作业件数（件）",
-        "col_week_growth": "周环比增幅",
-        "col_week_diff": "件数差额（件）",
-        # Monthly
-        "lbl_month_this": "当月作业总量",
-        "lbl_month_prev": "上月作业总量",
-        "lbl_month_growth": "月环比增长率",
-        "lbl_month_orders": "当月订单总量",
-        "lbl_month_diff": "环比差值",
-        "lbl_month_table": "月度作业历史汇表明细",
-        "col_month": "统计月份",
-        "col_month_orders": "总订单量（单）",
-        "col_month_qty": "总作业件数（件）",
-        "col_month_growth": "月环比增幅",
-        "col_month_diff": "件数差额（件）",
-        # Headcount & Capacity Planning (Không icon)
-        "sec_planning": "全仓人力定编规划与产能负荷测算",
-        "plan_table_title": "周度人力定编规划看板（ISO标准周）",
-        "plan_select_week": "选择排班周期（ISO周）：",
-        "plan_fixed_header": "固定班组编制设定（周一至周六）",
-        "plan_fixed_note": "说明：周日默认仅叉车（2人）、交接（2人）及2C作业；其余入库、理货及2B班组休息。",
-        "plan_col_stage": "作业环节 / 班组",
-        "task_receiving": "采购入库组 (Receiving)",
-        "task_returns": "退货入库组 (Returns)",
-        "task_inventory": "库内理货组 (Inventory)",
-        "task_forklift": "叉车作业组 (Forklift)",
-        "task_handover": "出库交接组 (Handover)",
-        "task_pick_2c": "2C 拣货组 (2C Picking)",
-        "task_pack_2c": "2C 打包组 (2C Packing)",
-        "task_chint_envision": "B2B - 正泰与远景专线 (CHINT & ENVISION)",
-        "task_kkv": "B2B - KKV 专线",
-        "task_total_hc": "全仓作业到岗总人数",
-        "sec_volume_comparison": "计划与实际作业吞吐产能对账",
-        "lbl_vol_b2c": "2C 吞吐产能",
-        "lbl_vol_b2b": "2B 吞吐产能",
-        "lbl_fc_orders": "预计单量",
-        "lbl_act_orders": "实际单量",
-        "lbl_pct_orders": "单量达成率 (%)",
-        "lbl_fc_pcs": "预计件数",
-        "lbl_act_pcs": "实际件数",
-        "lbl_pct_pcs": "件数达成率 (%)",
-        "lbl_metric_col": "客户名称 / 指标",
-        "lbl_client_col": "客户全称",
-        "lbl_total_week": "全周合计",
-        "lbl_total_b2c": "2C 业务总计",
-        "lbl_total_b2b": "2B 业务总计",
-        "lbl_filter_client": "筛选客户：",
-        "plan_unit_people": "人",
-        "plan_unit_orders": "单",
-        "plan_unit_pcs": "件",
-        "lbl_download_csv": "导出排班预测表格 (.csv)",
-        "lbl_download_vol_csv": "导出产能对账表格 (.csv)",
-        # Backlog
-        "lbl_bl_qty": "待入库积压件数（件）",
-        "lbl_bl_orders": "待接收订单数（单）",
-        "lbl_bl_partners": "积压涉及货主（家）",
-        "lbl_bl_event": "大促节点储备",
-        "lbl_bl_chart": "积压件数排名前10之重点客户",
-        "lbl_bl_event_title": "电商大促双日数营销日历",
-        "col_event_date": "大促日期",
-        "col_event_name": "营销节点名称",
-        # Pipeline
-        "col_stage_name": "仓储作业环节",
-        "lbl_throughput_chart": "全流程各环节吞吐作业件数",
-        "summary_rec_title": "采购入库（新货）",
-        "summary_rec_sub": "供应商送货验收入库",
-        "summary_ret_title": "退货入库（返仓）",
-        "summary_ret_sub": "逆向退货验收入库",
-        "summary_inv_title": "库内盘点（对账）",
-        "summary_inv_sub": "实际盘点与系统差异",
-        "summary_pick_title": "出库拣货（拣选）",
-        "summary_pick_sub": "出库波次拣选作业",
-        "summary_pack_title": "复核打包（包装）",
-        "summary_pack_sub": "出库包装复核产出",
-        "summary_hnd_title": "承运商交接出库",
-        "summary_hnd_sub": "已交接快递物流总单量",
-        "lbl_summary_stage_table": "全仓各作业环节核心指标汇总表",
-        "lbl_customer_summary_table": "分客户跨环节作业量交叉对账表",
-        "lbl_summary_stage_col": "作业环节",
-        "lbl_summary_flow_col": "作业流向",
-        "lbl_summary_orders_col": "总订单量（单）",
-        "lbl_summary_qty_col": "总作业件数（件）",
-        "lbl_summary_key_metric": "核心重点指标",
-        "lbl_summary_notes": "运营执行解析",
-        "lbl_customer_col": "货主/客户",
-        "lbl_cust_type_col": "业务类型",
-        "lbl_cust_rec_col": "采购入库（单 / 件）",
-        "lbl_cust_ret_col": "退货入库（单 / 件）",
-        "lbl_cust_pick_col": "出库拣货（单 / 件）",
-        "lbl_cust_pack_col": "复核打包（单 / 件）",
-        "lbl_cust_hnd_col": "交接出库（单量）",
-        "btn_download_pipeline_csv": "下载跨环节对账数据 (.csv)",
-        "no_data": "所选周期内未检索到相关作业数据。",
-        "msg_no_hourly_data": "该日期暂未产生相关作业数据。",
-        # Tỉ trọng & Nhân viên
-        "pie_share_orders": "按客户划分之订单量占比",
-        "pie_share_qty": "按客户划分之作业件数占比",
-        "sec_hourly_staff": "按员工分时段作业产量交叉报表",
-        "col_worker": "员工姓名",
-        "lbl_total_row": "总计",
-        "sec_cust_share_tracking": "按客户追踪业务占比及环比增减",
-        "col_share_current": "本期占比 (%)",
-        "col_share_prev": "上期占比 (%)",
-        "col_share_delta": "占比增减 (百分点)",
-        "col_growth_rate": "环比增幅 (%)",
-        "col_period_current": "本期",
-        "col_period_prev": "上期",
-        "col_period_delta": "环比差值 (+/-)",
-        "lbl_chart_share_compare": "连续两期客户业务占比对比分析",
-        "btn_download_staff_hourly": "导出员工小时明细报表 (.csv)",
-        "btn_download_share_csv": "导出客户占比分析报表 (.csv)",
-        "sync_auto_badge": "每5分钟自动后台同步",
-        "sync_last_time": "最近同步时间：",
-        "sync_running": "正在从云端Drive同步...",
-        "sync_init": "正在执行首次后台同步...",
-        "sync_new_files": "个新文件",
-        "sync_error": "同步异常:",
-        # Inventory tab translations
-        "inv_title": "库存盘点与差异对账报表",
-        "inv_metric_tasks": "盘点任务总数",
-        "inv_metric_skus": "盘点品项数 (SKU)",
-        "inv_metric_system_qty": "系统账面数量",
-        "inv_metric_actual_qty": "实际盘点数量",
-        "inv_metric_diff_qty": "盘点差异数量 (PCS)",
-        "inv_metric_accuracy": "盘点准确率",
-        "inv_sub_tasks": "已执行盘点任务次数",
-        "inv_sub_skus": "涉及盘点SKU品项数",
-        "inv_sub_sys": "WMS系统账面库存件数",
-        "inv_sub_act": "现场实际清点件数",
-        "inv_sub_diff": "系统与实盘数量差异",
-        "inv_tab_daily": "按日盘点 (进度与差异)",
-        "inv_tab_customer": "按客户对账 (客户明细)",
-        "inv_tab_tasks": "盘点任务明细日志",
-        "inv_chart_daily_title": "每日盘点件数与差异趋势分析",
-        "inv_chart_customer_share": "各客户盘点业务量占比分析",
-        "inv_chart_customer_diff": "盘点差异件数最高客户排行",
-        "inv_col_date": "日期",
-        "inv_col_dow": "星期",
-        "inv_col_task_count": "任务数",
-        "inv_col_sku_count": "SKU数",
-        "inv_col_sys_qty": "系统数量 (PCS)",
-        "inv_col_act_qty": "实际数量 (PCS)",
-        "inv_col_diff_qty": "差异数量 (PCS)",
-        "inv_col_accuracy": "准确率",
-        "inv_col_status": "盘点状态",
-        "inv_col_cust_name": "客户名称",
-        "inv_col_cust_type": "客户类型",
-        "inv_col_share_pct": "占比",
-        "inv_col_task_no": "盘点任务编号",
-        "inv_col_prod_name": "商品名称",
-        "inv_col_location": "库位/货架",
-        "inv_col_worker": "盘点人员",
-        "inv_status_perfect": "完全吻合",
-        "inv_status_diff": "存在差异",
-        "inv_btn_download_daily": "导出每日盘点报表 (.csv)",
-        "inv_btn_download_cust": "导出客户对账报表 (.csv)",
-        "inv_btn_download_tasks": "导出任务明细报表 (.csv)",
-        "developed_by": "由QC质量控制部开发",
-        # Packing Backlog integration
-        "card_backlog_label": "出库待打包积压 (BACKLOG)",
-        "unit_order": "单",
-        "unit_pcs_backlog": "件待打包",
-        "sub_done_backlog_qty": "已打包 / 需处理总件数",
-        "sub_done_backlog_orders": "已打包 / 需处理总单数",
-        "sec_backlog_table": "各客户出库积压明细报表 (BACKLOG)",
-        "col_customer_name": "客户名称",
-        "col_customer_type": "客户类型",
-        "col_backlog_orders": "积压订单数 (单)",
-        "col_backlog_pcs": "积压件数 (PCS)",
-        "col_backlog_share_orders": "单量占比 (%)",
-        "col_backlog_share_pcs": "件数占比 (%)",
-        "btn_download_backlog": "导出积压数据报表 (.csv)",
-        "msg_no_backlog": "当前无积压待打包订单数据。",
-        # Packing Customer Share Table
-        "sec_packing_share_table": "各客户打包订单量与件数占比明细表",
-        "col_packing_orders": "打包订单数",
-        "col_packing_qty": "打包件数 (PCS)",
-        "btn_download_packing_share": "导出打包占比明细 (.csv)"
     }
 }
+TRANSLATIONS["ZH"] = TRANSLATIONS["VN"]
 
 # Bảng tra cứu tên thứ trong tuần
 DOW_NAMES = {
@@ -743,70 +501,62 @@ DOW_NAMES = {
         5: "Thứ Năm",
         6: "Thứ Sáu",
         7: "Thứ Bảy"
-    },
-    "ZH": {
-        1: "周日",
-        2: "周一",
-        3: "周二",
-        4: "周三",
-        5: "周四",
-        6: "周五",
-        7: "周六"
     }
 }
+DOW_NAMES["ZH"] = DOW_NAMES["VN"]
 
 # Cấu hình 9 khâu vận hành (không icon)
 STAGE_CONFIGS = {
     "TỔNG HỢP": {
         "name_vn": "TỔNG HỢP",
-        "name_zh": "全流程总览",
+        "name_zh": "",
         "title_vn": "TỔNG HỢP VẬN HÀNH TOÀN KHO",
-        "title_zh": "全仓作业全流程吞吐总览",
+        "title_zh": "",
         "desc_vn": "Bức tranh toàn cảnh luồng hàng hóa qua tất cả các mắt xích kho vận",
-        "desc_zh": "全面监控从入库到出库各作业节点的流转效率与产能平衡",
+        "desc_zh": "",
         "type": "summary"
     },
     "NHẬP HÀNG": {
         "name_vn": "NHẬP HÀNG",
-        "name_zh": "采购入库",
+        "name_zh": "",
         "title_vn": "BÁO CÁO NHẬP HÀNG (MUA MỚI)",
-        "title_zh": "采购入库作业监控报表",
+        "title_zh": "",
         "desc_vn": "Theo dõi tiến độ nhận hàng nhà cung cấp và nhập kho lưu trữ",
-        "desc_zh": "跟踪供应商送货交接与到货验收入库进度",
+        "desc_zh": "",
         "table": "fact_receiving",
         "where": "cargo_type = 'Purchase Inbound' AND receiving_time IS NOT NULL",
         "time_col": "receiving_time",
         "order_col": "order_no",
         "qty_col": "receiving_qty",
         "qty_label_vn": "Sản lượng nhập (Sản phẩm)",
-        "qty_label_zh": "入库件数（件）",
+        "qty_label_zh": "",
         "order_label_vn": "Số đơn nhập",
-        "order_label_zh": "入库单量（单）"
+        "order_label_zh": ""
     },
     "HOÀN TRẢ": {
         "name_vn": "HOÀN TRẢ",
-        "name_zh": "退货入库",
+        "name_zh": "",
         "title_vn": "BÁO CÁO HOÀN TRẢ NHẬP KHO",
-        "title_zh": "逆向退货入库监控报表",
+        "title_zh": "",
         "desc_vn": "Theo dõi tiếp nhận và kiểm đếm các đơn hàng hoàn/trả về kho",
-        "desc_zh": "监控逆向包裹接收、质检及返仓上架处理流转",
+        "desc_zh": "",
         "table": "fact_receiving",
         "where": "cargo_type = 'Return Inbound' AND receiving_time IS NOT NULL",
         "time_col": "receiving_time",
         "order_col": "order_no",
         "qty_col": "receiving_qty",
         "qty_label_vn": "Sản lượng hoàn (Sản phẩm)",
-        "qty_label_zh": "退件件数（件）",
+        "qty_label_zh": "",
         "order_label_vn": "Số đơn hoàn",
-        "order_label_zh": "退货单量（单）"
+        "order_label_zh": ""
     },
     "TRONG KHO": {
         "name_vn": "TRONG KHO",
-        "name_zh": "库内盘点",
+        "name_zh": "",
         "title_vn": "BÁO CÁO KIỂM KÊ & ĐỐI SOÁT TỒN KHO",
-        "title_zh": "库存盘点与差异对账报表",
+        "title_zh": "",
         "desc_vn": "Theo dõi số lượng nhiệm vụ kiểm kê, số lượng SKU, sản lượng thực tế và đối soát chênh lệch tồn kho",
-        "desc_zh": "监控盘点任务数、品项数(SKU)、实际盘点件数与系统差异对账",
+        "desc_zh": "",
         "type": "inventory",
         "table": "fact_inventory",
         "where": "inventory_time IS NOT NULL",
@@ -814,85 +564,85 @@ STAGE_CONFIGS = {
         "order_col": "inventory_check_no",
         "qty_col": "actual_qty",
         "qty_label_vn": "Sản lượng đếm thực tế (Sản phẩm)",
-        "qty_label_zh": "实际盘点数量(件)",
+        "qty_label_zh": "",
         "order_label_vn": "Số nhiệm vụ kiểm kê",
-        "order_label_zh": "盘点任务数"
+        "order_label_zh": ""
     },
     "LÊN KỆ": {
         "name_vn": "LÊN KỆ",
-        "name_zh": "上架作业",
+        "name_zh": "",
         "title_vn": "BÁO CÁO LÊN KỆ",
-        "title_zh": "物料库位上架作业报表",
+        "title_zh": "",
         "desc_vn": "Theo dõi tiến độ cất hàng lên kệ từ khu vực đệm tiếp nhận",
-        "desc_zh": "监控从暂存缓冲区至存储货位之上架作业时效与件数",
+        "desc_zh": "",
         "table": "fact_putaway",
         "where": "putaway_time IS NOT NULL",
         "time_col": "putaway_time",
         "order_col": "order_no",
         "qty_col": "putaway_qty",
         "qty_label_vn": "Sản lượng lên kệ (Sản phẩm)",
-        "qty_label_zh": "上架件数（件）",
+        "qty_label_zh": "",
         "order_label_vn": "Số lệnh lên kệ",
-        "order_label_zh": "上架任务数（单）"
+        "order_label_zh": ""
     },
     "NHẶT HÀNG": {
         "name_vn": "NHẶT HÀNG",
-        "name_zh": "拣货作业",
+        "name_zh": "",
         "title_vn": "BÁO CÁO NHẶT HÀNG",
-        "title_zh": "出库波次拣货作业报表",
+        "title_zh": "",
         "desc_vn": "Theo dõi hiệu suất lấy hàng từ kệ chuẩn bị cho khâu đóng gói",
-        "desc_zh": "监控拣货作业批次、拣选件数与出库集货履约效率",
+        "desc_zh": "",
         "table": "fact_picking",
         "where": "COALESCE(end_time, start_time) IS NOT NULL",
         "time_col": "COALESCE(end_time, start_time)",
         "order_col": "order_no",
         "qty_col": "COALESCE(actual_qty, expected_qty)",
         "qty_label_vn": "Sản lượng nhặt (Sản phẩm)",
-        "qty_label_zh": "拣货件数（件）",
+        "qty_label_zh": "",
         "order_label_vn": "Số đơn nhặt",
-        "order_label_zh": "拣货单量（单）"
+        "order_label_zh": ""
     },
     "ĐÓNG GÓI": {
         "name_vn": "ĐÓNG GÓI",
-        "name_zh": "复核打包",
+        "name_zh": "",
         "title_vn": "BÁO CÁO ĐÓNG GÓI XUẤT KHO",
-        "title_zh": "出库复核打包作业报表",
+        "title_zh": "",
         "desc_vn": "Giám sát sản lượng đóng gói đơn hàng xuất kho theo thời gian thực",
-        "desc_zh": "实时监控各打包工位包装复核产出与出库发运准备度",
+        "desc_zh": "",
         "table": "fact_packing",
         "where": "pack_time IS NOT NULL",
         "time_col": "pack_time",
         "order_col": "order_no",
         "qty_col": "packing_qty",
         "qty_label_vn": "Sản lượng đóng gói (Sản phẩm)",
-        "qty_label_zh": "打包件数（件）",
+        "qty_label_zh": "",
         "order_label_vn": "Số đơn đóng gói",
-        "order_label_zh": "打包单量（单）"
+        "order_label_zh": ""
     },
     "BÀN GIAO": {
         "name_vn": "BÀN GIAO",
-        "name_zh": "交接出库",
+        "name_zh": "",
         "title_vn": "BÁO CÁO BÀN GIAO VẬN CHUYỂN",
-        "title_zh": "快递承运商交接出库报表",
+        "title_zh": "",
         "desc_vn": "Theo dõi bàn giao kiện hàng cho các đơn vị vận chuyển",
-        "desc_zh": "监控发货包裹向各快递物流承运商交接封签时效",
+        "desc_zh": "",
         "table": "fact_handover",
         "where": "handover_time IS NOT NULL",
         "time_col": "handover_time",
         "order_col": "order_no",
         "qty_col": "1",
         "qty_label_vn": "Số kiện bàn giao (Kiện)",
-        "qty_label_zh": "交接包裹数（件）",
+        "qty_label_zh": "",
         "order_label_vn": "Số đơn bàn giao",
-        "order_label_zh": "交接订单数（单）"
+        "order_label_zh": ""
     },
     "DỰ KIẾN": {
         "name_vn": "DỰ KIẾN",
-        "name_zh": "排班预测",
+        "name_zh": "",
         "title_vn": "KẾ HOẠCH ĐỊNH BIÊN NHÂN SỰ & NĂNG LỰC VẬN HÀNH",
-        "title_zh": "人力排班与产能负荷测算看板",
+        "title_zh": "",
         "desc_vn": "Mô phỏng nhu cầu nhân sự dựa trên sản lượng dự kiến và năng suất thực tế",
-        "desc_zh": "基于作业预测件量与实际效率工时动态测算人力排班需求",
+        "desc_zh": "",
         "type": "planning"
     }
 }
@@ -1668,21 +1418,26 @@ def fetch_backlog_data(cache_version: float = 0.0):
         owner_name,
         customer_type,
         SAFE_CAST(piece_qty AS FLOAT64) as piece_qty,
-        received_time
+        received_time,
+        production_end_time
     FROM `{PROJECT_ID}.{DATASET_ID}.fact_backlog`
     """
     try:
         df_backlog = client.query(sql_backlog).to_dataframe()
     except Exception as e:
-        df_backlog = pd.DataFrame(columns=['order_no', 'owner_name', 'customer_type', 'piece_qty', 'received_time'])
+        df_backlog = pd.DataFrame(columns=['order_no', 'owner_name', 'customer_type', 'piece_qty', 'received_time', 'production_end_time'])
 
     if not df_backlog.empty:
         df_backlog['piece_qty'] = pd.to_numeric(df_backlog['piece_qty'], errors='coerce').fillna(0.0)
         df_backlog['backlog_qty'] = df_backlog['piece_qty']
         df_backlog['backlog_orders'] = 1
         df_backlog['cargo_type'] = df_backlog['customer_type']
+        if 'production_end_time' in df_backlog.columns:
+            df_backlog['prod_dt'] = pd.to_datetime(df_backlog['production_end_time'], errors='coerce')
+        else:
+            df_backlog['prod_dt'] = pd.NaT
     else:
-        df_backlog = pd.DataFrame(columns=['order_no', 'owner_name', 'customer_type', 'piece_qty', 'received_time', 'backlog_qty', 'backlog_orders', 'cargo_type'])
+        df_backlog = pd.DataFrame(columns=['order_no', 'owner_name', 'customer_type', 'piece_qty', 'received_time', 'production_end_time', 'backlog_qty', 'backlog_orders', 'cargo_type', 'prod_dt'])
 
     sql_events = f"""
     SELECT event_date, event_name 
@@ -1705,9 +1460,9 @@ def filter_by_customer(df: pd.DataFrame, cust_type: str, cust_name: str) -> pd.D
     if df.empty:
         return df
     res = df.copy()
-    if cust_type != "Tất cả" and cust_type != "全部":
+    if cust_type != "Tất cả":
         res = res[res['customer_type'] == cust_type]
-    if cust_name != "Tất cả" and cust_name != "全部":
+    if cust_name != "Tất cả":
         res = res[res['owner_name'] == cust_name]
     return res
 
@@ -2179,12 +1934,157 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
         else:
             st.info(t["msg_no_hourly_data"])
 
-    # 5. BẢNG CHI TIẾT TỒN ĐỌNG (BACKLOG) THEO KHÁCH HÀNG (Áp dụng riêng cho ĐÓNG GÓI)
+    # 5. TIẾN ĐỘ & RỦI RO SLA ĐƠN TỒN THEO HẠN SẢN XUẤT (Áp dụng riêng cho ĐÓNG GÓI)
     if stage_key == "ĐÓNG GÓI":
         st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown(f'<div class="chart-title-banner">{t["sec_backlog_table"]}</div>', unsafe_allow_html=True)
+        st.markdown('<div class="chart-title-banner">TIẾN ĐỘ & RỦI RO SLA ĐƠN TỒN THEO HẠN SẢN XUẤT (PRODUCTION END TIME)</div>', unsafe_allow_html=True)
 
         if not df_bl_filtered.empty:
+            now_vn = datetime.datetime.now(VN_TZ).replace(tzinfo=None)
+            today_vn = now_vn.date()
+
+            # Lọc các đơn có hạn sản xuất trong ngày hôm nay
+            has_prod_dt = 'prod_dt' in df_bl_filtered.columns and df_bl_filtered['prod_dt'].notnull().any()
+            if has_prod_dt:
+                df_bl_today = df_bl_filtered[df_bl_filtered['prod_dt'].dt.date == today_vn].copy()
+            else:
+                df_bl_today = pd.DataFrame()
+
+            urgent_delta = datetime.timedelta(hours=2)
+            urgent_time = now_vn + urgent_delta
+
+            if not df_bl_today.empty:
+                # Phân loại SLA
+                def classify_sla(dt):
+                    if pd.isnull(dt):
+                        return 'Không có hạn'
+                    if dt < now_vn:
+                        return 'Đã trễ'
+                    elif dt <= urgent_time:
+                        return 'Sắp trễ'
+                    else:
+                        return 'Trong hạn'
+
+                df_bl_today['sla_status'] = df_bl_today['prod_dt'].apply(classify_sla)
+
+                tot_sla_orders = int(df_bl_today['order_no'].nunique())
+                tot_sla_qty = float(df_bl_today['piece_qty'].sum())
+                late_cnt = int((df_bl_today['sla_status'] == 'Đã trễ').sum())
+                urgent_cnt = int((df_bl_today['sla_status'] == 'Sắp trễ').sum())
+                ontime_cnt = int((df_bl_today['sla_status'] == 'Trong hạn').sum())
+
+                # KPI Cards cho SLA hôm nay
+                c_sla1, c_sla2, c_sla3, c_sla4 = st.columns(4)
+                with c_sla1:
+                    st.markdown(f"""
+                    <div class="kpi-card">
+                        <div class="kpi-label">HẠN HÔM NAY ({today_vn.strftime('%d/%m')})</div>
+                        <div class="kpi-value" style="color: #38bdf8;">{tot_sla_orders:,} <span style="font-size: 13px; color: #94a3b8;">đơn</span></div>
+                        <div class="kpi-delta delta-neutral">• {tot_sla_qty:,.0f} PCS tồn</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                with c_sla2:
+                    late_color = "#ef4444" if late_cnt > 0 else "#94a3b8"
+                    late_tag = "🚨 CẦN XỬ LÝ GẤP" if late_cnt > 0 else "✅ 0 đơn trễ"
+                    st.markdown(f"""
+                    <div class="kpi-card" style="{'border-left: 3px solid #ef4444;' if late_cnt > 0 else ''}">
+                        <div class="kpi-label" style="color: {late_color};">ĐÃ TRỄ HẠN (OVERDUE)</div>
+                        <div class="kpi-value" style="color: {late_color};">{late_cnt:,} <span style="font-size: 13px;">đơn</span></div>
+                        <div class="kpi-delta" style="color: {late_color};">• {late_tag}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                with c_sla3:
+                    urg_color = "#f59e0b" if urgent_cnt > 0 else "#94a3b8"
+                    urg_tag = "⏳ Cận hạn ≤ 2h" if urgent_cnt > 0 else "• Không có đơn cận hạn"
+                    st.markdown(f"""
+                    <div class="kpi-card" style="{'border-left: 3px solid #f59e0b;' if urgent_cnt > 0 else ''}">
+                        <div class="kpi-label" style="color: {urg_color};">SẮP TRỄ HẠN (CẬN HẠN)</div>
+                        <div class="kpi-value" style="color: {urg_color};">{urgent_cnt:,} <span style="font-size: 13px;">đơn</span></div>
+                        <div class="kpi-delta" style="color: {urg_color};">• {urg_tag}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                with c_sla4:
+                    ontime_color = "#10b981"
+                    pct_ontime = (ontime_cnt / tot_sla_orders * 100) if tot_sla_orders > 0 else 100.0
+                    st.markdown(f"""
+                    <div class="kpi-card">
+                        <div class="kpi-label" style="color: {ontime_color};">TRONG HẠN AN TOÀN</div>
+                        <div class="kpi-value" style="color: {ontime_color};">{ontime_cnt:,} <span style="font-size: 13px;">đơn</span></div>
+                        <div class="kpi-delta" style="color: {ontime_color};">• {pct_ontime:.1f}% an toàn SLA</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
+
+                # Bảng chi tiết SLA theo khách hàng
+                df_sla_cust = df_bl_today.groupby(['owner_name', 'customer_type'], as_index=False).agg(
+                    total_orders=('order_no', 'nunique'),
+                    late_orders=('sla_status', lambda s: (s == 'Đã trễ').sum()),
+                    urgent_orders=('sla_status', lambda s: (s == 'Sắp trễ').sum()),
+                    ontime_orders=('sla_status', lambda s: (s == 'Trong hạn').sum()),
+                    total_pcs=('piece_qty', 'sum')
+                ).sort_values(by=['late_orders', 'urgent_orders', 'total_orders'], ascending=False)
+
+                df_sla_cust['risk_pct'] = ((df_sla_cust['late_orders'] + df_sla_cust['urgent_orders']) / df_sla_cust['total_orders'] * 100).round(1)
+
+                total_sla_row = pd.DataFrame([{
+                    'owner_name': 'TỔNG CỘNG',
+                    'customer_type': '-',
+                    'total_orders': tot_sla_orders,
+                    'late_orders': late_cnt,
+                    'urgent_orders': urgent_cnt,
+                    'ontime_orders': ontime_cnt,
+                    'total_pcs': tot_sla_qty,
+                    'risk_pct': round((late_cnt + urgent_cnt) / tot_sla_orders * 100, 1) if tot_sla_orders > 0 else 0.0
+                }])
+
+                df_sla_display = pd.concat([df_sla_cust, total_sla_row], ignore_index=True)
+                df_sla_formatted = df_sla_display.copy()
+                df_sla_formatted['total_orders'] = df_sla_formatted['total_orders'].apply(lambda x: f"{x:,.0f}")
+                df_sla_formatted['late_orders'] = df_sla_formatted['late_orders'].apply(lambda x: f"{x:,.0f}")
+                df_sla_formatted['urgent_orders'] = df_sla_formatted['urgent_orders'].apply(lambda x: f"{x:,.0f}")
+                df_sla_formatted['ontime_orders'] = df_sla_formatted['ontime_orders'].apply(lambda x: f"{x:,.0f}")
+                df_sla_formatted['total_pcs'] = df_sla_formatted['total_pcs'].apply(lambda x: f"{x:,.0f}")
+                df_sla_formatted['risk_pct'] = df_sla_formatted['risk_pct'].apply(lambda x: f"{x:.1f}%")
+
+                df_sla_formatted.columns = [
+                    "Khách hàng",
+                    "Phân loại",
+                    "Tổng đơn hôm nay",
+                    "Đã trễ (Quá hạn)",
+                    "Sắp trễ (≤ 2h)",
+                    "Trong hạn",
+                    "Sản lượng (PCS)",
+                    "Tỉ lệ rủi ro (%)"
+                ]
+
+                st.dataframe(df_sla_formatted, width="stretch", height=min(450, 42 * len(df_sla_formatted) + 40), hide_index=True)
+
+                col_sla_dl, _ = st.columns([1.5, 2.5])
+                with col_sla_dl:
+                    csv_sla_bytes = df_sla_display.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
+                    st.download_button(
+                        label="Tải bảng SLA đơn tồn đóng gói (.csv)",
+                        data=csv_sla_bytes,
+                        file_name=f"packing_sla_backlog_{today_vn.strftime('%Y%m%d')}.csv",
+                        mime="text/csv",
+                        use_container_width=True,
+                        key="btn_dl_packing_sla"
+                    )
+
+                # Expander danh sách đơn trễ / sắp trễ để xử lý gấp
+                df_urgent_detail = df_bl_today[df_bl_today['sla_status'].isin(['Đã trễ', 'Sắp trễ'])].copy()
+                if not df_urgent_detail.empty:
+                    with st.expander(f"🚨 Danh sách chi tiết {len(df_urgent_detail):,} đơn ĐÃ TRỄ & SẮP TRỄ cần xử lý gấp", expanded=(late_cnt > 0)):
+                        df_u_show = df_urgent_detail[['order_no', 'owner_name', 'customer_type', 'piece_qty', 'production_end_time', 'sla_status']].sort_values(by=['sla_status', 'production_end_time'], ascending=[True, True])
+                        df_u_show.columns = ["Mã đơn hàng", "Khách hàng", "Phân loại", "Số lượng (PCS)", "Hạn sản xuất (Production End Time)", "Trạng thái SLA"]
+                        st.dataframe(df_u_show, width="stretch", height=250, hide_index=True)
+            else:
+                st.info(f"Không có đơn tồn đọng nào có Hạn sản xuất (Production End Time) trong ngày hôm nay ({today_vn.strftime('%d/%m/%Y')}).")
+
+            # Bảng tổng hợp tồn đọng chung (All Backlog)
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown('<div class="chart-title-banner">TỔNG HỢP TOÀN BỘ ĐƠN TỒN BACKLOG THEO KHÁCH HÀNG (TẤT CẢ CÁC HẠN)</div>', unsafe_allow_html=True)
             df_bl_summary = df_bl_filtered.groupby(['owner_name', 'customer_type'], as_index=False).agg(
                 backlog_orders=('order_no', 'nunique'),
                 backlog_qty=('piece_qty', 'sum')
@@ -2197,7 +2097,7 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
             df_bl_summary['share_qty'] = (df_bl_summary['backlog_qty'] / tot_bl_tbl_qty * 100) if tot_bl_tbl_qty > 0 else 0.0
 
             total_row = pd.DataFrame([{
-                'owner_name': t['lbl_total_row'],
+                'owner_name': 'TỔNG CỘNG',
                 'customer_type': '-',
                 'backlog_orders': tot_bl_tbl_orders,
                 'backlog_qty': tot_bl_tbl_qty,
@@ -2213,12 +2113,12 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
             df_bl_formatted['share_qty'] = df_bl_formatted['share_qty'].apply(lambda x: f"{x:.1f}%")
 
             df_bl_formatted.columns = [
-                t['col_customer_name'],
-                t['col_customer_type'],
-                t['col_backlog_orders'],
-                t['col_backlog_pcs'],
-                t['col_backlog_share_orders'],
-                t['col_backlog_share_pcs']
+                "Tên khách hàng",
+                "Phân loại",
+                "Số đơn tồn đọng",
+                "Sản lượng tồn đọng (PCS)",
+                "% Tỉ trọng đơn",
+                "% Tỉ trọng PCS"
             ]
 
             st.dataframe(df_bl_formatted, width="stretch", height=320, hide_index=True)
@@ -2227,15 +2127,15 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
             with col_bl_csv:
                 csv_bl_bytes = df_bl_display.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
                 st.download_button(
-                    label=t['btn_download_backlog'],
+                    label="Tải bảng tồn đọng chung (.csv)",
                     data=csv_bl_bytes,
-                    file_name=f"packing_backlog_{datetime.date.today().strftime('%Y%m%d')}.csv",
+                    file_name=f"packing_backlog_all_{datetime.date.today().strftime('%Y%m%d')}.csv",
                     mime="text/csv",
                     use_container_width=True,
-                    key="btn_dl_packing_backlog"
+                    key="btn_dl_packing_backlog_all"
                 )
         else:
-            st.info(t["msg_no_backlog"])
+            st.info("Hiện không có đơn hàng tồn đọng nào cần xử lý.")
 
 # ==========================================
 # TAB 2: TUẦN (WEEK-OVER-WEEK - WoW ANALYSIS)
@@ -2318,8 +2218,8 @@ def render_week_tab(df_filtered: pd.DataFrame, cfg: dict, t: dict, lang: str):
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown(f'<div class="chart-title-banner">{t["sec_weekly"]}</div>', unsafe_allow_html=True)
 
-    prefix_w = "Tuần " if lang == "VN" else "第"
-    suffix_w = "" if lang == "VN" else "周"
+    prefix_w = "Tuần "
+    suffix_w = ""
     weekly_total['week_label'] = weekly_total['week_start'].apply(lambda d: f"{prefix_w}{d.strftime('%W')}{suffix_w} ({d.strftime('%d/%m')})")
     
     fig_w = go.Figure()
@@ -2383,7 +2283,7 @@ def render_week_tab(df_filtered: pd.DataFrame, cfg: dict, t: dict, lang: str):
                 t['col_week_name'],
                 options=weeks,
                 index=sel_week_idx,
-                format_func=lambda d: f"{'Tuần' if lang == 'VN' else '第'} {d.strftime('%W')} ({d.strftime('%d/%m/%Y') if lang == 'VN' else d.strftime('%Y-%m-%d')})",
+                format_func=lambda d: f"Tuần {d.strftime('%W')} ({d.strftime('%d/%m/%Y')})",
                 key="sb_week_share"
             )
         with col_w_metric:
@@ -2893,12 +2793,12 @@ def render_headcount_planning(cust_type: str, cust_name: str, start_date: dateti
         s_end = m_start + datetime.timedelta(days=6)
         iso_year, iso_week, _ = m_start.isocalendar()
         if i == 0:
-            tag = " [Tuần này]" if lang == "VN" else " [本周]"
+            tag = " [Tuần này]"
         elif i < 0:
-            tag = " [Tương lai]" if lang == "VN" else " [未来排班]"
+            tag = " [Tương lai]"
         else:
             tag = ""
-        lbl = f"Tuần {iso_week} ({m_start.strftime('%d/%m')} - {s_end.strftime('%d/%m/%Y')}){tag}" if lang == "VN" else f"第 {iso_week} 周 ({m_start.strftime('%m/%d')} - {s_end.strftime('%m/%d/%Y')}){tag}"
+        lbl = f"Tuần {iso_week} ({m_start.strftime('%d/%m')} - {s_end.strftime('%d/%m/%Y')}){tag}"
         iso_weeks_options.append((lbl, m_start))
 
     selected_week_tuple = st.selectbox(
@@ -2915,7 +2815,7 @@ def render_headcount_planning(cust_type: str, cust_name: str, start_date: dateti
     start_str = week_dates[0].strftime('%Y-%m-%d')
     end_str = week_dates[-1].strftime('%Y-%m-%d')
 
-    dow_names = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"] if lang == "VN" else ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+    dow_names = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"]
     date_cols = [f"{dow_names[i]} {week_dates[i].strftime('%d/%m')}" for i in range(7)]
 
     # 2. TRUY VẤN DỮ LIỆU THỰC TẾ & BASELINE TỪ BIGQUERY
@@ -3253,8 +3153,8 @@ def render_headcount_planning(cust_type: str, cust_name: str, start_date: dateti
     with c_dl1:
         csv_rows = []
         for stg in stages_data:
-            csv_rows.append({"Khâu vận hành" if lang=="VN" else "作业环节": stg["name"], **{date_cols[i]: stg["values"][i] for i in range(7)}})
-        csv_rows.append({"Khâu vận hành" if lang=="VN" else "作业环节": t['task_total_hc'], **{date_cols[i]: daily_total_hcs[i] for i in range(7)}})
+            csv_rows.append({"Khâu vận hành": stg["name"], **{date_cols[i]: stg["values"][i] for i in range(7)}})
+        csv_rows.append({"Khâu vận hành": t['task_total_hc'], **{date_cols[i]: daily_total_hcs[i] for i in range(7)}})
         df_export_hc = pd.DataFrame(csv_rows)
         csv_bytes_hc = df_export_hc.to_csv(index=False).encode('utf-8-sig')
         st.download_button(
@@ -3266,15 +3166,15 @@ def render_headcount_planning(cust_type: str, cust_name: str, start_date: dateti
         )
     with c_dl2:
         vol_export_rows = []
-        vol_export_rows.append({"Khách hàng" if lang=="VN" else "客户名称": total_label, "Chỉ số" if lang=="VN" else "指标": t['lbl_fc_orders'], **{date_cols[i]: tot_fc_ords[i] for i in range(7)}, t['lbl_total_week']: grand_fc_o})
-        vol_export_rows.append({"Khách hàng" if lang=="VN" else "客户名称": total_label, "Chỉ số" if lang=="VN" else "指标": t['lbl_act_orders'], **{date_cols[i]: (tot_act_ords[i] if tot_act_ords[i] is not None else "-") for i in range(7)}, t['lbl_total_week']: (grand_act_o if grand_act_o is not None else "-")})
-        vol_export_rows.append({"Khách hàng" if lang=="VN" else "客户名称": total_label, "Chỉ số" if lang=="VN" else "指标": t['lbl_fc_pcs'], **{date_cols[i]: tot_fc_pcss[i] for i in range(7)}, t['lbl_total_week']: grand_fc_p})
-        vol_export_rows.append({"Khách hàng" if lang=="VN" else "客户名称": total_label, "Chỉ số" if lang=="VN" else "指标": t['lbl_act_pcs'], **{date_cols[i]: (tot_act_pcss[i] if tot_act_pcss[i] is not None else "-") for i in range(7)}, t['lbl_total_week']: (grand_act_p if grand_act_p is not None else "-")})
+        vol_export_rows.append({"Khách hàng": total_label, "Chỉ số": t['lbl_fc_orders'], **{date_cols[i]: tot_fc_ords[i] for i in range(7)}, t['lbl_total_week']: grand_fc_o})
+        vol_export_rows.append({"Khách hàng": total_label, "Chỉ số": t['lbl_act_orders'], **{date_cols[i]: (tot_act_ords[i] if tot_act_ords[i] is not None else "-") for i in range(7)}, t['lbl_total_week']: (grand_act_o if grand_act_o is not None else "-")})
+        vol_export_rows.append({"Khách hàng": total_label, "Chỉ số": t['lbl_fc_pcs'], **{date_cols[i]: tot_fc_pcss[i] for i in range(7)}, t['lbl_total_week']: grand_fc_p})
+        vol_export_rows.append({"Khách hàng": total_label, "Chỉ số": t['lbl_act_pcs'], **{date_cols[i]: (tot_act_pcss[i] if tot_act_pcss[i] is not None else "-") for i in range(7)}, t['lbl_total_week']: (grand_act_p if grand_act_p is not None else "-")})
         for c in display_clients:
-            vol_export_rows.append({"Khách hàng" if lang=="VN" else "客户名称": c, "Chỉ số" if lang=="VN" else "指标": t['lbl_fc_orders'], **{date_cols[i]: clients_data[c]["fc_ords"][i] for i in range(7)}, t['lbl_total_week']: sum(clients_data[c]["fc_ords"])})
-            vol_export_rows.append({"Khách hàng" if lang=="VN" else "客户名称": c, "Chỉ số" if lang=="VN" else "指标": t['lbl_act_orders'], **{date_cols[i]: (clients_data[c]["act_ords"][i] if clients_data[c]["act_ords"][i] is not None else "-") for i in range(7)}, t['lbl_total_week']: (sum([v for v in clients_data[c]["act_ords"] if v is not None]) if any(v is not None for v in clients_data[c]["act_ords"]) else "-")})
-            vol_export_rows.append({"Khách hàng" if lang=="VN" else "客户名称": c, "Chỉ số" if lang=="VN" else "指标": t['lbl_fc_pcs'], **{date_cols[i]: clients_data[c]["fc_pcs"][i] for i in range(7)}, t['lbl_total_week']: sum(clients_data[c]["fc_pcs"])})
-            vol_export_rows.append({"Khách hàng" if lang=="VN" else "客户名称": c, "Chỉ số" if lang=="VN" else "指标": t['lbl_act_pcs'], **{date_cols[i]: (clients_data[c]["act_pcs"][i] if clients_data[c]["act_pcs"][i] is not None else "-") for i in range(7)}, t['lbl_total_week']: (sum([v for v in clients_data[c]["act_pcs"] if v is not None]) if any(v is not None for v in clients_data[c]["act_pcs"]) else "-")})
+            vol_export_rows.append({"Khách hàng": c, "Chỉ số": t['lbl_fc_orders'], **{date_cols[i]: clients_data[c]["fc_ords"][i] for i in range(7)}, t['lbl_total_week']: sum(clients_data[c]["fc_ords"])})
+            vol_export_rows.append({"Khách hàng": c, "Chỉ số": t['lbl_act_orders'], **{date_cols[i]: (clients_data[c]["act_ords"][i] if clients_data[c]["act_ords"][i] is not None else "-") for i in range(7)}, t['lbl_total_week']: (sum([v for v in clients_data[c]["act_ords"] if v is not None]) if any(v is not None for v in clients_data[c]["act_ords"]) else "-")})
+            vol_export_rows.append({"Khách hàng": c, "Chỉ số": t['lbl_fc_pcs'], **{date_cols[i]: clients_data[c]["fc_pcs"][i] for i in range(7)}, t['lbl_total_week']: sum(clients_data[c]["fc_pcs"])})
+            vol_export_rows.append({"Khách hàng": c, "Chỉ số": t['lbl_act_pcs'], **{date_cols[i]: (clients_data[c]["act_pcs"][i] if clients_data[c]["act_pcs"][i] is not None else "-") for i in range(7)}, t['lbl_total_week']: (sum([v for v in clients_data[c]["act_pcs"] if v is not None]) if any(v is not None for v in clients_data[c]["act_pcs"]) else "-")})
         df_export_vol = pd.DataFrame(vol_export_rows)
         csv_bytes_vol = df_export_vol.to_csv(index=False).encode('utf-8-sig')
         st.download_button(
@@ -3374,7 +3274,7 @@ def render_pipeline_summary(cust_type: str, cust_name: str, start_date: datetime
             </div>
             <div class="kpi-value">{rec_qty:,.0f} <span style="font-size: 14px; font-weight: 500; color: #94a3b8;">PCS</span></div>
             <div style="font-size: 12px; color: #cbd5e1; margin-bottom: 4px;">
-                {"Tổng đơn nhập: " if lang == "VN" else "入库单量: "}<b>{rec_orders:,}</b>{" đơn" if lang == "VN" else " 单"}{avg_rec_str}
+                Tổng đơn nhập: <b>{rec_orders:,}</b> đơn{avg_rec_str}
             </div>
             <div class="kpi-delta delta-neutral">• {t['summary_rec_sub']}</div>
         </div>
@@ -3390,7 +3290,7 @@ def render_pipeline_summary(cust_type: str, cust_name: str, start_date: datetime
             </div>
             <div class="kpi-value">{ret_qty:,.0f} <span style="font-size: 14px; font-weight: 500; color: #94a3b8;">PCS</span></div>
             <div style="font-size: 12px; color: #cbd5e1; margin-bottom: 4px;">
-                {"Tổng đơn hoàn: " if lang == "VN" else "退货单量: "}<b>{ret_orders:,}</b>{" đơn" if lang == "VN" else " 单"}{avg_ret_str}
+                Tổng đơn hoàn: <b>{ret_orders:,}</b> đơn{avg_ret_str}
             </div>
             <div class="kpi-delta delta-neutral">• {t['summary_ret_sub']}</div>
         </div>
@@ -3399,16 +3299,16 @@ def render_pipeline_summary(cust_type: str, cust_name: str, start_date: datetime
     with c3:
         if inv_diff_qty > 0:
             diff_display = f'<span style="color: #ef4444;">+{inv_diff_qty:,}</span>'
-            diff_badge = f'<span style="font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 4px; background: rgba(239, 68, 68, 0.18); color: #f87171;">Lệch tồn</span>' if lang == "VN" else f'<span style="font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 4px; background: rgba(239, 68, 68, 0.18); color: #f87171;">盘点有差异</span>'
+            diff_badge = '<span style="font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 4px; background: rgba(239, 68, 68, 0.18); color: #f87171;">Lệch tồn</span>'
         elif inv_diff_qty < 0:
             diff_display = f'<span style="color: #ef4444;">{inv_diff_qty:,}</span>'
-            diff_badge = f'<span style="font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 4px; background: rgba(239, 68, 68, 0.18); color: #f87171;">Lệch tồn</span>' if lang == "VN" else f'<span style="font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 4px; background: rgba(239, 68, 68, 0.18); color: #f87171;">盘点有差异</span>'
+            diff_badge = '<span style="font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 4px; background: rgba(239, 68, 68, 0.18); color: #f87171;">Lệch tồn</span>'
         else:
             diff_display = '<span style="color: #10b981;">0</span>'
-            diff_badge = f'<span style="font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 4px; background: rgba(16, 185, 129, 0.18); color: #34d399;">Khớp tồn</span>' if lang == "VN" else f'<span style="font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 4px; background: rgba(16, 185, 129, 0.18); color: #34d399;">账实相符</span>'
+            diff_badge = '<span style="font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 4px; background: rgba(16, 185, 129, 0.18); color: #34d399;">Khớp tồn</span>'
 
-        inv_detail_str = f"Thực tế: <b>{inv_actual_qty:,}</b> | Sổ sách: <b>{inv_system_qty:,}</b> PCS" if lang == "VN" else f"实盘: <b>{inv_actual_qty:,}</b> | 账面: <b>{inv_system_qty:,}</b> 件"
-        inv_sub_str = f"• {inv_tasks:,} nhiệm vụ kiểm kê" if lang == "VN" else f"• {inv_tasks:,} 个盘点任务"
+        inv_detail_str = f"Thực tế: <b>{inv_actual_qty:,}</b> | Sổ sách: <b>{inv_system_qty:,}</b> PCS"
+        inv_sub_str = f"• {inv_tasks:,} nhiệm vụ kiểm kê"
 
         st.markdown(f"""
         <div class="kpi-card">
@@ -3436,7 +3336,7 @@ def render_pipeline_summary(cust_type: str, cust_name: str, start_date: datetime
             </div>
             <div class="kpi-value">{pick_qty:,.0f} <span style="font-size: 14px; font-weight: 500; color: #94a3b8;">PCS</span></div>
             <div style="font-size: 12px; color: #cbd5e1; margin-bottom: 4px;">
-                {"Tổng đơn nhặt: " if lang == "VN" else "拣货单量: "}<b>{pick_orders:,}</b>{" đơn" if lang == "VN" else " 单"}{avg_pick_str}
+                Tổng đơn nhặt: <b>{pick_orders:,}</b> đơn{avg_pick_str}
             </div>
             <div class="kpi-delta delta-neutral">• {t['summary_pick_sub']}</div>
         </div>
@@ -3452,21 +3352,21 @@ def render_pipeline_summary(cust_type: str, cust_name: str, start_date: datetime
             </div>
             <div class="kpi-value">{pack_qty:,.0f} <span style="font-size: 14px; font-weight: 500; color: #94a3b8;">PCS</span></div>
             <div style="font-size: 12px; color: #cbd5e1; margin-bottom: 4px;">
-                {"Tổng đơn đóng: " if lang == "VN" else "打包单量: "}<b>{pack_orders:,}</b>{" đơn" if lang == "VN" else " 单"}{avg_pack_str}
+                Tổng đơn đóng: <b>{pack_orders:,}</b> đơn{avg_pack_str}
             </div>
             <div class="kpi-delta delta-neutral">• {t['summary_pack_sub']}</div>
         </div>
         """, unsafe_allow_html=True)
 
     with c6:
-        hnd_rate_str = f"Tỉ lệ bàn giao/đóng: <b>{hnd_orders/pack_orders*100:.1f}%</b>" if (pack_orders > 0 and lang == "VN") else (f"交接率: <b>{hnd_orders/pack_orders*100:.1f}%</b>" if pack_orders > 0 else ("Hoàn tất bàn giao" if lang == "VN" else "完成交接"))
+        hnd_rate_str = f"Tỉ lệ bàn giao/đóng: <b>{hnd_orders/pack_orders*100:.1f}%</b>" if pack_orders > 0 else "Hoàn tất bàn giao"
         st.markdown(f"""
         <div class="kpi-card">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
                 <span class="kpi-label">{t['summary_hnd_title']}</span>
                 <span style="font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 4px; background: rgba(236, 72, 153, 0.18); color: #f472b6;">Handover</span>
             </div>
-            <div class="kpi-value">{hnd_orders:,} <span style="font-size: 14px; font-weight: 500; color: #94a3b8;">{"ĐƠN" if lang == "VN" else "单"}</span></div>
+            <div class="kpi-value">{hnd_orders:,} <span style="font-size: 14px; font-weight: 500; color: #94a3b8;">ĐƠN</span></div>
             <div style="font-size: 12px; color: #cbd5e1; margin-bottom: 4px;">{hnd_rate_str}</div>
             <div class="kpi-delta delta-neutral">• {t['summary_hnd_sub']}</div>
         </div>
@@ -3481,52 +3381,52 @@ def render_pipeline_summary(cust_type: str, cust_name: str, start_date: datetime
 
     summary_stages_rows = [
         {
-            t['lbl_summary_stage_col']: "NHẬP HÀNG" if lang == "VN" else "采购入库",
-            t['lbl_summary_flow_col']: "Inbound (Nhập mới)" if lang == "VN" else "正向到货入库",
+            t['lbl_summary_stage_col']: "NHẬP HÀNG",
+            t['lbl_summary_flow_col']: "Inbound (Nhập mới)",
             t['lbl_summary_orders_col']: f"{rec_orders:,}",
             t['lbl_summary_qty_col']: f"{rec_qty:,.0f}",
-            t['lbl_summary_key_metric']: f"{rec_orders:,} Đơn | {rec_qty:,.0f} PCS" if lang == "VN" else f"{rec_orders:,} 单 | {rec_qty:,.0f} 件",
-            t['lbl_summary_notes']: f"Bình quân: {rec_qty/rec_orders:.1f} PCS/đơn" if (rec_orders > 0 and lang == "VN") else (f"单均: {rec_qty/rec_orders:.1f} 件/单" if rec_orders > 0 else ("Không phát sinh" if lang == "VN" else "无作业"))
+            t['lbl_summary_key_metric']: f"{rec_orders:,} Đơn | {rec_qty:,.0f} PCS",
+            t['lbl_summary_notes']: f"Bình quân: {rec_qty/rec_orders:.1f} PCS/đơn" if rec_orders > 0 else "Không phát sinh"
         },
         {
-            t['lbl_summary_stage_col']: "HOÀN TRẢ" if lang == "VN" else "退货入库",
-            t['lbl_summary_flow_col']: "Reverse (Hoàn kho)" if lang == "VN" else "逆向退货入库",
+            t['lbl_summary_stage_col']: "HOÀN TRẢ",
+            t['lbl_summary_flow_col']: "Reverse (Hoàn kho)",
             t['lbl_summary_orders_col']: f"{ret_orders:,}",
             t['lbl_summary_qty_col']: f"{ret_qty:,.0f}",
-            t['lbl_summary_key_metric']: f"{ret_orders:,} Đơn | {ret_qty:,.0f} PCS" if lang == "VN" else f"{ret_orders:,} 单 | {ret_qty:,.0f} 件",
-            t['lbl_summary_notes']: f"Bình quân: {ret_qty/ret_orders:.1f} PCS/đơn" if (ret_orders > 0 and lang == "VN") else (f"单均: {ret_qty/ret_orders:.1f} 件/单" if ret_orders > 0 else ("Không phát sinh" if lang == "VN" else "无作业"))
+            t['lbl_summary_key_metric']: f"{ret_orders:,} Đơn | {ret_qty:,.0f} PCS",
+            t['lbl_summary_notes']: f"Bình quân: {ret_qty/ret_orders:.1f} PCS/đơn" if ret_orders > 0 else "Không phát sinh"
         },
         {
-            t['lbl_summary_stage_col']: "TRONG KHO" if lang == "VN" else "库内盘点",
-            t['lbl_summary_flow_col']: "Internal (Kiểm kê tồn)" if lang == "VN" else "库内差异对账",
-            t['lbl_summary_orders_col']: f"{inv_tasks:,} nhiệm vụ" if lang == "VN" else f"{inv_tasks:,} 任务",
+            t['lbl_summary_stage_col']: "TRONG KHO",
+            t['lbl_summary_flow_col']: "Internal (Kiểm kê tồn)",
+            t['lbl_summary_orders_col']: f"{inv_tasks:,} nhiệm vụ",
             t['lbl_summary_qty_col']: f"{inv_actual_qty:,}",
-            t['lbl_summary_key_metric']: (f"Chênh lệch: {inv_diff_qty:+d} PCS" if inv_diff_qty != 0 else "Chênh lệch: 0 PCS (Khớp)") if lang == "VN" else ((f"差异: {inv_diff_qty:+d} 件" if inv_diff_qty != 0 else "差异: 0 件（账实一致）")),
-            t['lbl_summary_notes']: f"Thực tế: {inv_actual_qty:,} | Sổ sách: {inv_system_qty:,} PCS" if lang == "VN" else f"实盘: {inv_actual_qty:,} | 账面: {inv_system_qty:,} 件"
+            t['lbl_summary_key_metric']: (f"Chênh lệch: {inv_diff_qty:+d} PCS" if inv_diff_qty != 0 else "Chênh lệch: 0 PCS (Khớp)"),
+            t['lbl_summary_notes']: f"Thực tế: {inv_actual_qty:,} | Sổ sách: {inv_system_qty:,} PCS"
         },
         {
-            t['lbl_summary_stage_col']: "NHẶT HÀNG" if lang == "VN" else "出库拣货",
-            t['lbl_summary_flow_col']: "Outbound (Nhặt hàng)" if lang == "VN" else "出库波次拣选",
+            t['lbl_summary_stage_col']: "NHẶT HÀNG",
+            t['lbl_summary_flow_col']: "Outbound (Nhặt hàng)",
             t['lbl_summary_orders_col']: f"{pick_orders:,}",
             t['lbl_summary_qty_col']: f"{pick_qty:,.0f}",
-            t['lbl_summary_key_metric']: f"{pick_orders:,} Đơn | {pick_qty:,.0f} PCS" if lang == "VN" else f"{pick_orders:,} 单 | {pick_qty:,.0f} 件",
-            t['lbl_summary_notes']: f"Bình quân: {pick_qty/pick_orders:.1f} PCS/đơn" if (pick_orders > 0 and lang == "VN") else (f"单均: {pick_qty/pick_orders:.1f} 件/单" if pick_orders > 0 else ("Không phát sinh" if lang == "VN" else "无作业"))
+            t['lbl_summary_key_metric']: f"{pick_orders:,} Đơn | {pick_qty:,.0f} PCS",
+            t['lbl_summary_notes']: f"Bình quân: {pick_qty/pick_orders:.1f} PCS/đơn" if pick_orders > 0 else "Không phát sinh"
         },
         {
-            t['lbl_summary_stage_col']: "ĐÓNG GÓI" if lang == "VN" else "复核打包",
-            t['lbl_summary_flow_col']: "Outbound (Đóng gói)" if lang == "VN" else "出库包装复核",
+            t['lbl_summary_stage_col']: "ĐÓNG GÓI",
+            t['lbl_summary_flow_col']: "Outbound (Đóng gói)",
             t['lbl_summary_orders_col']: f"{pack_orders:,}",
             t['lbl_summary_qty_col']: f"{pack_qty:,.0f}",
-            t['lbl_summary_key_metric']: f"{pack_orders:,} Đơn | {pack_qty:,.0f} PCS" if lang == "VN" else f"{pack_orders:,} 单 | {pack_qty:,.0f} 件",
-            t['lbl_summary_notes']: f"Bình quân: {pack_qty/pack_orders:.1f} PCS/đơn" if (pack_orders > 0 and lang == "VN") else (f"单均: {pack_qty/pack_orders:.1f} 件/单" if pack_orders > 0 else ("Không phát sinh" if lang == "VN" else "无作业"))
+            t['lbl_summary_key_metric']: f"{pack_orders:,} Đơn | {pack_qty:,.0f} PCS",
+            t['lbl_summary_notes']: f"Bình quân: {pack_qty/pack_orders:.1f} PCS/đơn" if pack_orders > 0 else "Không phát sinh"
         },
         {
-            t['lbl_summary_stage_col']: "BÀN GIAO" if lang == "VN" else "交接出库",
-            t['lbl_summary_flow_col']: "Handover (Giao ĐVVC)" if lang == "VN" else "承运商交接出库",
+            t['lbl_summary_stage_col']: "BÀN GIAO",
+            t['lbl_summary_flow_col']: "Handover (Giao ĐVVC)",
             t['lbl_summary_orders_col']: f"{hnd_orders:,}",
             t['lbl_summary_qty_col']: "-",
-            t['lbl_summary_key_metric']: f"Bàn giao: {hnd_orders:,} Đơn" if lang == "VN" else f"交接出库: {hnd_orders:,} 单",
-            t['lbl_summary_notes']: f"Tỉ lệ bàn giao/đóng: {hnd_orders/pack_orders*100:.1f}%" if (pack_orders > 0 and lang == "VN") else (f"交接/打包比率: {hnd_orders/pack_orders*100:.1f}%" if pack_orders > 0 else ("Hoàn tất bàn giao" if lang == "VN" else "完成交接"))
+            t['lbl_summary_key_metric']: f"Bàn giao: {hnd_orders:,} Đơn",
+            t['lbl_summary_notes']: f"Tỉ lệ bàn giao/đóng: {hnd_orders/pack_orders*100:.1f}%" if pack_orders > 0 else "Hoàn tất bàn giao"
         }
     ]
     df_summary_stages = pd.DataFrame(summary_stages_rows)
@@ -3610,7 +3510,7 @@ def render_inventory_dashboard(df_inventory: pd.DataFrame, cust_type: str, cust_
     - Phân tích chi tiết và đối soát theo từng khách hàng
     """
     if df_inventory.empty:
-        st.info("Chưa có dữ liệu kiểm kê trong cơ sở dữ liệu." if lang == "VN" else "数据库中暂无盘点数据。")
+        st.info("Chưa có dữ liệu kiểm kê trong cơ sở dữ liệu.")
         return
 
     df = df_inventory.copy()
@@ -3627,7 +3527,7 @@ def render_inventory_dashboard(df_inventory: pd.DataFrame, cust_type: str, cust_
         df = df[df['owner_name'] == cust_name]
 
     if df.empty:
-        st.warning("Không tìm thấy dữ liệu kiểm kê phù hợp với điều kiện lọc." if lang == "VN" else "所选筛选条件下未检索到盘点记录。")
+        st.warning("Không tìm thấy dữ liệu kiểm kê phù hợp với điều kiện lọc.")
         return
 
     # Tính toán các chỉ số KPI điều hành
@@ -3847,7 +3747,7 @@ def render_inventory_dashboard(df_inventory: pd.DataFrame, cust_type: str, cust_
             if len(cust_df) > 8:
                 other_share = cust_df.iloc[8:]['actual_qty'].sum()
                 top_pie_cust = pd.concat([top_pie_cust, pd.DataFrame([{
-                    'owner_name': 'Khác' if lang == 'VN' else '其他',
+                    'owner_name': 'Khác',
                     'actual_qty': other_share
                 }])], ignore_index=True)
             
@@ -3946,9 +3846,9 @@ def render_inventory_dashboard(df_inventory: pd.DataFrame, cust_type: str, cust_
     with tab_tasks:
         st.markdown(f'<div class="section-title">{t["inv_tab_tasks"]}</div>', unsafe_allow_html=True)
         search_kw = st.text_input(
-            "Tìm kiếm theo Mã phiếu hoặc Mã SKU:" if lang == "VN" else "按盘点单号或SKU品项搜索：",
+            "Tìm kiếm theo Mã phiếu hoặc Mã SKU:",
             value="",
-            placeholder="Nhập mã phiếu kiểm kê hoặc mã hàng..." if lang == "VN" else "输入盘点任务号或商品编码..."
+            placeholder="Nhập mã phiếu kiểm kê hoặc mã hàng..."
         )
 
         task_agg = df.groupby(['inventory_check_no', 'inv_date', 'owner_name', 'customer_type']).agg(
@@ -4153,27 +4053,6 @@ def main():
 
         st.markdown('<div class="sidebar-divider"></div>', unsafe_allow_html=True)
 
-        # 4. LANGUAGE SWITCHER VI - CN (CĂN GIỮA HOÀN TOÀN)
-        st.markdown(f'<div class="lang-center-title">{t["lang_header"]}</div>', unsafe_allow_html=True)
-
-        lang_options = ["VI", "CN"]
-        cur_lang_default = "VI" if st.session_state.current_lang == "VN" else "CN"
-        
-        col_pad_l, col_center_pill, col_pad_r = st.columns([1, 2, 1])
-        with col_center_pill:
-            chosen_lang_pill = st.pills(
-                label="Language Switcher",
-                options=lang_options,
-                default=cur_lang_default,
-                selection_mode="single",
-                label_visibility="collapsed"
-            )
-
-        new_lang = "VN" if chosen_lang_pill == "VI" else "ZH"
-        if new_lang != st.session_state.current_lang:
-            st.session_state.current_lang = new_lang
-            st.rerun()
-
         # 5. THÔNG TIN TRẠNG THÁI ĐỒNG BỘ TINH GỌN (SYNC STATUS LIVE FRAGMENT)
         render_sidebar_sync_status_fragment(t)
 
@@ -4369,29 +4248,29 @@ def main():
                 
                 pr1, pr2, pr3, pr4, pr5 = st.columns(5)
                 with pr1:
-                    if st.button("Hôm nay" if lang == "VN" else "今日", use_container_width=True, key="pop_pre_today"):
+                    if st.button("Hôm nay", use_container_width=True, key="pop_pre_today"):
                         apply_preset(today_vn, today_vn, datetime.time(0, 0), datetime.time(23, 59))
                 with pr2:
-                    if st.button("Hôm qua" if lang == "VN" else "昨日", use_container_width=True, key="pop_pre_yesterday"):
+                    if st.button("Hôm qua", use_container_width=True, key="pop_pre_yesterday"):
                         yest = today_vn - timedelta(days=1)
                         apply_preset(yest, yest, datetime.time(0, 0), datetime.time(23, 59))
                 with pr3:
-                    if st.button("Ca ngày (8-17h)" if lang == "VN" else "白班 (8-17h)", use_container_width=True, key="pop_pre_day"):
+                    if st.button("Ca ngày (8-17h)", use_container_width=True, key="pop_pre_day"):
                         apply_preset(st.session_state.wms_d_from, st.session_state.wms_d_to, datetime.time(8, 0), datetime.time(17, 0))
                 with pr4:
-                    if st.button("Ca đêm (22-06h)" if lang == "VN" else "夜班 (22-06h)", use_container_width=True, key="pop_pre_night"):
+                    if st.button("Ca đêm (22-06h)", use_container_width=True, key="pop_pre_night"):
                         apply_preset(today_vn - timedelta(days=1), today_vn, datetime.time(22, 0), datetime.time(6, 0))
                 with pr5:
-                    if st.button("7 ngày" if lang == "VN" else "近7天", use_container_width=True, key="pop_pre_7d"):
+                    if st.button("7 ngày", use_container_width=True, key="pop_pre_7d"):
                         apply_preset(today_vn - timedelta(days=6), today_vn, datetime.time(0, 0), datetime.time(23, 59))
 
                 st.markdown("<div style='height: 1px; background: #334155; margin: 12px 0 8px 0;'></div>", unsafe_allow_html=True)
                 b_clear, b_ok = st.columns(2)
                 with b_clear:
-                    if st.button("Clear / Mặc định" if lang == "VN" else "重置", use_container_width=True, key="pop_action_clear"):
+                    if st.button("Clear / Mặc định", use_container_width=True, key="pop_action_clear"):
                         apply_preset(today_vn, today_vn, datetime.time(0, 0), datetime.time(23, 59))
                 with b_ok:
-                    if st.button("OK / Xác nhận" if lang == "VN" else "确定", type="primary", use_container_width=True, key="pop_action_ok"):
+                    if st.button("OK / Xác nhận", type="primary", use_container_width=True, key="pop_action_ok"):
                         apply_preset(pop_d_start, pop_d_end, pop_t_start, pop_t_end)
 
                 # Tự động cập nhật nếu thay đổi trực tiếp từ date/time input
