@@ -191,15 +191,31 @@ def background_sync_worker():
     while True:
         try:
             sync_state["is_running"] = True
-            creds = get_sync_credentials()
-            drive_svc = build_service("drive", "v3", credentials=creds, cache_discovery=False)
-            sync_proj = getattr(creds, "project_id", None) or SYNC_PROJECT_ID
+            try:
+                import importlib
+                import sync_wms_local
+                importlib.reload(sync_wms_local)
+                _get_creds = sync_wms_local.get_credentials
+                _run_cycle = sync_wms_local.run_sync_cycle
+                _build = sync_wms_local.build
+                _bq_mod = sync_wms_local.bigquery
+                _sync_proj = sync_wms_local.PROJECT_ID
+            except Exception:
+                _get_creds = get_sync_credentials
+                _run_cycle = run_sync_cycle
+                _build = build_service
+                _bq_mod = bq_module
+                _sync_proj = SYNC_PROJECT_ID
+
+            creds = _get_creds()
+            drive_svc = _build("drive", "v3", credentials=creds, cache_discovery=False)
+            sync_proj = getattr(creds, "project_id", None) or _sync_proj
             if hasattr(st, "secrets") and "gcp_service_account" in st.secrets:
                 sync_proj = st.secrets["gcp_service_account"].get("project_id", sync_proj)
-            bq_client = bq_module.Client(credentials=creds, project=sync_proj)
+            bq_client = _bq_mod.Client(credentials=creds, project=sync_proj)
 
             # Chạy Quick sync (is_full_sync=False, dry_run=False, folder=None)
-            res = run_sync_cycle(drive_svc, bq_client, is_full=False, dry_run=False, folder=None)
+            res = _run_cycle(drive_svc, bq_client, is_full=False, dry_run=False, folder=None)
             now_vn = datetime.datetime.now(timezone(timedelta(hours=7)))
             sync_state["last_sync"] = now_vn.strftime("%H:%M:%S %d/%m/%Y")
             if isinstance(res, dict):
@@ -2674,7 +2690,9 @@ def render_backlog_report(cust_type: str, cust_name: str, start_date: datetime.d
     
     with st.spinner("..."):
         try:
-            df_backlog, df_events = fetch_backlog_data()
+            sync_st = get_global_sync_state()
+            cur_v = sync_st.get("data_version", 0.0)
+            df_backlog, df_events = fetch_backlog_data(cache_version=cur_v)
         except Exception as e:
             st.error(f"Lỗi tải dữ liệu Backlog: {e}")
             return
@@ -3990,6 +4008,11 @@ def render_sidebar_sync_status_fragment(t):
         <div class="sync-status-time">{sync_time_text}</div>
     </div>
     """, unsafe_allow_html=True)
+
+    if st.button("🔄 " + t.get("btn_refresh", "Làm mới dữ liệu"), key="btn_sidebar_refresh", use_container_width=True):
+        st.cache_data.clear()
+        sync_state["data_version"] = time.time()
+        st.rerun()
 
 @st.fragment(run_every="15s")
 def render_day_tab_fragment(stage_key, start_date, end_date, cur_cfg, selected_cust_type, selected_cust_name, t, lang, start_time=datetime.time(0, 0), end_time=datetime.time(23, 59)):
