@@ -1696,7 +1696,7 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
     if stage_key == "ĐÓNG GÓI":
         st.markdown(f'<div class="chart-title-banner">{t["sec_packing_share_table"]}</div>', unsafe_allow_html=True)
         if not df_range.empty:
-            df_cust_share = df_range.groupby(['owner_name', 'customer_type'], as_index=False).agg({
+            df_cust_share = df_range.groupby(['owner_name'], as_index=False).agg({
                 'total_orders': 'sum',
                 'total_qty': 'sum'
             })
@@ -1710,7 +1710,6 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
 
             total_share_row = pd.DataFrame([{
                 'owner_name': t['lbl_total_row'],
-                'customer_type': '-',
                 'total_orders': tot_tbl_orders,
                 'order_share_pct': 100.0 if tot_tbl_orders > 0 else 0,
                 'total_qty': tot_tbl_qty,
@@ -1726,7 +1725,6 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
 
             df_cust_disp.rename(columns={
                 'owner_name': t['col_customer_name'],
-                'customer_type': t['col_customer_type'],
                 'total_orders': t['col_packing_orders'],
                 'order_share_pct': t['col_backlog_share_orders'],
                 'total_qty': t['col_packing_qty'],
@@ -1805,16 +1803,16 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # 2. CHUYỂN ĐỔI CHỈ SỐ CHO BẢNG GIỜ (PCS / ORDERS)
+    # 2. CHUYỂN ĐỔI CHỈ SỐ CHO BẢNG GIỜ (MẶC ĐỊNH LÀ SỐ ĐƠN HÀNG)
     metric_choice = st.radio(
         t['lbl_display_metric'],
-        options=[t["opt_qty"], t["opt_orders"]],
+        options=[t["opt_orders"], t["opt_qty"]],
         horizontal=True,
         key=f"day_tab_metric_choice_{stage_key}"
     )
 
-    val_col = 'total_qty' if metric_choice == t["opt_qty"] else 'total_orders'
-    val_title = t["opt_qty"] if metric_choice == t["opt_qty"] else t["opt_orders"]
+    val_col = 'total_orders' if metric_choice == t["opt_orders"] else 'total_qty'
+    val_title = t["opt_orders"] if metric_choice == t["opt_orders"] else t["opt_qty"]
 
     # 3. BẢNG PHÂN BỔ SẢN LƯỢNG THEO KHUNG GIỜ (THEO KHÁCH HÀNG)
     fmt_d1 = start_date.strftime('%d/%m/%Y') if lang == "VN" else start_date.strftime('%Y-%m-%d')
@@ -1954,6 +1952,9 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
             urgent_time = now_vn + urgent_delta
 
             if not df_bl_today.empty:
+                # Trích xuất khung giờ hạn dạng chuỗi HH:MM:SS
+                df_bl_today['end_time_str'] = df_bl_today['prod_dt'].dt.strftime('%H:%M:%S')
+
                 # Phân loại SLA
                 def classify_sla(dt):
                     if pd.isnull(dt):
@@ -1968,19 +1969,18 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
                 df_bl_today['sla_status'] = df_bl_today['prod_dt'].apply(classify_sla)
 
                 tot_sla_orders = int(df_bl_today['order_no'].nunique())
-                tot_sla_qty = float(df_bl_today['piece_qty'].sum())
                 late_cnt = int((df_bl_today['sla_status'] == 'Đã trễ').sum())
                 urgent_cnt = int((df_bl_today['sla_status'] == 'Sắp trễ').sum())
                 ontime_cnt = int((df_bl_today['sla_status'] == 'Trong hạn').sum())
 
-                # KPI Cards cho SLA hôm nay
+                # 4 KPI Cards tập trung vào Số Đơn Hàng
                 c_sla1, c_sla2, c_sla3, c_sla4 = st.columns(4)
                 with c_sla1:
                     st.markdown(f"""
                     <div class="kpi-card">
                         <div class="kpi-label">HẠN HÔM NAY ({today_vn.strftime('%d/%m')})</div>
                         <div class="kpi-value" style="color: #38bdf8;">{tot_sla_orders:,} <span style="font-size: 13px; color: #94a3b8;">đơn</span></div>
-                        <div class="kpi-delta delta-neutral">• {tot_sla_qty:,.0f} PCS tồn</div>
+                        <div class="kpi-delta delta-neutral">• Toàn bộ đơn cần xong hôm nay</div>
                     </div>
                     """, unsafe_allow_html=True)
                 with c_sla2:
@@ -2014,78 +2014,129 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
                     </div>
                     """, unsafe_allow_html=True)
 
-                st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
+                st.markdown("<div style='height: 14px;'></div>", unsafe_allow_html=True)
 
-                # Bảng chi tiết SLA theo khách hàng
-                df_sla_cust = df_bl_today.groupby(['owner_name', 'customer_type'], as_index=False).agg(
+                # ==========================================
+                # BẢNG 1: TỔNG HỢP SỐ ĐƠN TỒN THEO TỪNG MỐC HẠN SẢN XUẤT (END TIME)
+                # ==========================================
+                st.markdown('<div class="chart-title-banner">PHÂN BỔ SỐ ĐƠN TỒN THEO TỪNG KHUNG GIỜ HẠN SẢN XUẤT (END TIME) TRONG RAW DATA</div>', unsafe_allow_html=True)
+                
+                end_time_grp = df_bl_today.groupby(['end_time_str', 'sla_status']).agg(
                     total_orders=('order_no', 'nunique'),
-                    late_orders=('sla_status', lambda s: (s == 'Đã trễ').sum()),
-                    urgent_orders=('sla_status', lambda s: (s == 'Sắp trễ').sum()),
-                    ontime_orders=('sla_status', lambda s: (s == 'Trong hạn').sum()),
-                    total_pcs=('piece_qty', 'sum')
-                ).sort_values(by=['late_orders', 'urgent_orders', 'total_orders'], ascending=False)
+                    dt_sample=('prod_dt', 'min'),
+                    owners=('owner_name', lambda s: ', '.join([f"{k} ({v} đơn)" for k, v in s.value_counts().items()]))
+                ).reset_index().sort_values(by='end_time_str')
 
-                df_sla_cust['risk_pct'] = ((df_sla_cust['late_orders'] + df_sla_cust['urgent_orders']) / df_sla_cust['total_orders'] * 100).round(1)
+                def get_countdown(dt):
+                    diff = dt - now_vn
+                    if diff.total_seconds() < 0:
+                        over = abs(diff)
+                        hrs = int(over.total_seconds() // 3600)
+                        mins = int((over.total_seconds() % 3600) // 60)
+                        return f"🚨 Quá hạn {hrs}h {mins}p"
+                    else:
+                        hrs = int(diff.total_seconds() // 3600)
+                        mins = int((diff.total_seconds() % 3600) // 60)
+                        return f"⏳ Còn {hrs}h {mins}p"
 
-                total_sla_row = pd.DataFrame([{
-                    'owner_name': 'TỔNG CỘNG',
-                    'customer_type': '-',
-                    'total_orders': tot_sla_orders,
-                    'late_orders': late_cnt,
-                    'urgent_orders': urgent_cnt,
-                    'ontime_orders': ontime_cnt,
-                    'total_pcs': tot_sla_qty,
-                    'risk_pct': round((late_cnt + urgent_cnt) / tot_sla_orders * 100, 1) if tot_sla_orders > 0 else 0.0
+                end_time_grp['time_remain'] = end_time_grp['dt_sample'].apply(get_countdown)
+
+                tot_e_orders = int(end_time_grp['total_orders'].sum())
+                tot_row_e = pd.DataFrame([{
+                    'end_time_str': 'TỔNG CỘNG HÔM NAY',
+                    'total_orders': f"{tot_e_orders:,} đơn",
+                    'sla_status': '-',
+                    'time_remain': '-',
+                    'owners': f"{df_bl_today['owner_name'].nunique()} khách hàng có đơn"
                 }])
 
-                df_sla_display = pd.concat([df_sla_cust, total_sla_row], ignore_index=True)
-                df_sla_formatted = df_sla_display.copy()
-                df_sla_formatted['total_orders'] = df_sla_formatted['total_orders'].apply(lambda x: f"{x:,.0f}")
-                df_sla_formatted['late_orders'] = df_sla_formatted['late_orders'].apply(lambda x: f"{x:,.0f}")
-                df_sla_formatted['urgent_orders'] = df_sla_formatted['urgent_orders'].apply(lambda x: f"{x:,.0f}")
-                df_sla_formatted['ontime_orders'] = df_sla_formatted['ontime_orders'].apply(lambda x: f"{x:,.0f}")
-                df_sla_formatted['total_pcs'] = df_sla_formatted['total_pcs'].apply(lambda x: f"{x:,.0f}")
-                df_sla_formatted['risk_pct'] = df_sla_formatted['risk_pct'].apply(lambda x: f"{x:.1f}%")
+                df_e_display = end_time_grp[['end_time_str', 'total_orders', 'sla_status', 'time_remain', 'owners']].copy()
+                df_e_display['total_orders'] = df_e_display['total_orders'].apply(lambda x: f"{x:,.0f} đơn")
+                df_e_display = pd.concat([df_e_display, tot_row_e], ignore_index=True)
 
-                df_sla_formatted.columns = [
-                    "Khách hàng",
-                    "Phân loại",
-                    "Tổng đơn hôm nay",
-                    "Đã trễ (Quá hạn)",
-                    "Sắp trễ (≤ 2h)",
-                    "Trong hạn",
-                    "Sản lượng (PCS)",
-                    "Tỉ lệ rủi ro (%)"
+                df_e_display.columns = [
+                    "Khung giờ hạn (End Time)",
+                    "Số đơn tồn",
+                    "Trạng thái SLA",
+                    "Thời gian còn lại",
+                    "Khách hàng có đơn"
                 ]
+                st.dataframe(df_e_display, width="stretch", height=min(320, 42 * len(df_e_display) + 40), hide_index=True)
 
-                st.dataframe(df_sla_formatted, width="stretch", height=min(450, 42 * len(df_sla_formatted) + 40), hide_index=True)
-
-                col_sla_dl, _ = st.columns([1.5, 2.5])
-                with col_sla_dl:
-                    csv_sla_bytes = df_sla_display.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
+                col_dl_e, _ = st.columns([1.5, 2.5])
+                with col_dl_e:
+                    csv_e_bytes = df_e_display.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
                     st.download_button(
-                        label="Tải bảng SLA đơn tồn đóng gói (.csv)",
-                        data=csv_sla_bytes,
-                        file_name=f"packing_sla_backlog_{today_vn.strftime('%Y%m%d')}.csv",
+                        label="Tải bảng phân bổ khung giờ hạn (.csv)",
+                        data=csv_e_bytes,
+                        file_name=f"packing_end_time_slots_{today_vn.strftime('%Y%m%d')}.csv",
                         mime="text/csv",
                         use_container_width=True,
-                        key="btn_dl_packing_sla"
+                        key="btn_dl_packing_end_times"
                     )
 
-                # Expander danh sách đơn trễ / sắp trễ để xử lý gấp
+                st.markdown("<div style='height: 14px;'></div>", unsafe_allow_html=True)
+
+                # ==========================================
+                # BẢNG 2: CHI TIẾT SỐ ĐƠN CỦA TỪNG KHÁCH HÀNG THEO TỪNG MỐC HẠN SẢN XUẤT (MA TRẬN KHÁCH HÀNG X END TIME)
+                # ==========================================
+                st.markdown('<div class="chart-title-banner">CHI TIẾT SỐ ĐƠN TỒN CỦA TỪNG KHÁCH HÀNG THEO TỪNG KHUNG GIỜ HẠN</div>', unsafe_allow_html=True)
+
+                pivot_orders = df_bl_today.pivot_table(
+                    index='owner_name',
+                    columns='end_time_str',
+                    values='order_no',
+                    aggfunc='nunique',
+                    fill_value=0
+                )
+                end_time_cols = sorted(pivot_orders.columns.tolist())
+                pivot_orders['TỔNG ĐƠN TỒN'] = pivot_orders[end_time_cols].sum(axis=1)
+                pivot_orders = pivot_orders.sort_values(by='TỔNG ĐƠN TỒN', ascending=False).reset_index()
+
+                tot_dict = {'owner_name': 'TỔNG CỘNG'}
+                for c in end_time_cols:
+                    tot_dict[c] = int(pivot_orders[c].sum())
+                tot_dict['TỔNG ĐƠN TỒN'] = int(pivot_orders['TỔNG ĐƠN TỒN'].sum())
+
+                pivot_display = pd.concat([pivot_orders, pd.DataFrame([tot_dict])], ignore_index=True)
+                pivot_display.rename(columns={'owner_name': 'Khách hàng'}, inplace=True)
+
+                for c in end_time_cols + ['TỔNG ĐƠN TỒN']:
+                    pivot_display[c] = pivot_display[c].apply(lambda x: f"{x:,.0f}" if x > 0 else "-")
+
+                st.dataframe(pivot_display, width="stretch", height=min(450, 42 * len(pivot_display) + 40), hide_index=True)
+
+                col_pivot_dl, _ = st.columns([1.5, 2.5])
+                with col_pivot_dl:
+                    csv_pivot_bytes = pivot_display.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
+                    st.download_button(
+                        label="Tải bảng chi tiết khách hàng theo khung giờ (.csv)",
+                        data=csv_pivot_bytes,
+                        file_name=f"packing_cust_x_end_time_{today_vn.strftime('%Y%m%d')}.csv",
+                        mime="text/csv",
+                        use_container_width=True,
+                        key="btn_dl_packing_cust_end_time"
+                    )
+
+                # ==========================================
+                # EXPANDER: DANH SÁCH ĐƠN ĐÃ TRỄ & SẮP TRỄ CẦN ĐÓNG GẤP (ẨN CỘT PHÂN LOẠI)
+                # ==========================================
                 df_urgent_detail = df_bl_today[df_bl_today['sla_status'].isin(['Đã trễ', 'Sắp trễ'])].copy()
                 if not df_urgent_detail.empty:
                     with st.expander(f"🚨 Danh sách chi tiết {len(df_urgent_detail):,} đơn ĐÃ TRỄ & SẮP TRỄ cần xử lý gấp", expanded=(late_cnt > 0)):
-                        df_u_show = df_urgent_detail[['order_no', 'owner_name', 'customer_type', 'piece_qty', 'production_end_time', 'sla_status']].sort_values(by=['sla_status', 'production_end_time'], ascending=[True, True])
-                        df_u_show.columns = ["Mã đơn hàng", "Khách hàng", "Phân loại", "Số lượng (PCS)", "Hạn sản xuất (Production End Time)", "Trạng thái SLA"]
+                        df_u_show = df_urgent_detail[['order_no', 'owner_name', 'production_end_time', 'sla_status', 'piece_qty']].sort_values(by=['sla_status', 'production_end_time'], ascending=[True, True])
+                        df_u_show['piece_qty'] = df_u_show['piece_qty'].apply(lambda x: f"{x:,.0f}")
+                        df_u_show.columns = ["Mã đơn hàng", "Khách hàng", "Hạn sản xuất (Production End Time)", "Trạng thái SLA", "Số lượng (PCS)"]
                         st.dataframe(df_u_show, width="stretch", height=250, hide_index=True)
             else:
                 st.info(f"Không có đơn tồn đọng nào có Hạn sản xuất (Production End Time) trong ngày hôm nay ({today_vn.strftime('%d/%m/%Y')}).")
 
-            # Bảng tổng hợp tồn đọng chung (All Backlog)
+            # ==========================================
+            # BẢNG 3: TỔNG HỢP TOÀN BỘ ĐƠN TỒN BACKLOG THEO KHÁCH HÀNG (TẤT CẢ CÁC HẠN - ẨN CỘT PHÂN LOẠI)
+            # ==========================================
             st.markdown("<br>", unsafe_allow_html=True)
             st.markdown('<div class="chart-title-banner">TỔNG HỢP TOÀN BỘ ĐƠN TỒN BACKLOG THEO KHÁCH HÀNG (TẤT CẢ CÁC HẠN)</div>', unsafe_allow_html=True)
-            df_bl_summary = df_bl_filtered.groupby(['owner_name', 'customer_type'], as_index=False).agg(
+            df_bl_summary = df_bl_filtered.groupby(['owner_name'], as_index=False).agg(
                 backlog_orders=('order_no', 'nunique'),
                 backlog_qty=('piece_qty', 'sum')
             ).sort_values(by='backlog_orders', ascending=False)
@@ -2098,26 +2149,24 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
 
             total_row = pd.DataFrame([{
                 'owner_name': 'TỔNG CỘNG',
-                'customer_type': '-',
                 'backlog_orders': tot_bl_tbl_orders,
-                'backlog_qty': tot_bl_tbl_qty,
                 'share_orders': 100.0,
+                'backlog_qty': tot_bl_tbl_qty,
                 'share_qty': 100.0
             }])
             df_bl_display = pd.concat([df_bl_summary, total_row], ignore_index=True)
 
             df_bl_formatted = df_bl_display.copy()
             df_bl_formatted['backlog_orders'] = df_bl_formatted['backlog_orders'].apply(lambda x: f"{x:,.0f}")
-            df_bl_formatted['backlog_qty'] = df_bl_formatted['backlog_qty'].apply(lambda x: f"{x:,.0f}")
             df_bl_formatted['share_orders'] = df_bl_formatted['share_orders'].apply(lambda x: f"{x:.1f}%")
+            df_bl_formatted['backlog_qty'] = df_bl_formatted['backlog_qty'].apply(lambda x: f"{x:,.0f}")
             df_bl_formatted['share_qty'] = df_bl_formatted['share_qty'].apply(lambda x: f"{x:.1f}%")
 
             df_bl_formatted.columns = [
                 "Tên khách hàng",
-                "Phân loại",
                 "Số đơn tồn đọng",
-                "Sản lượng tồn đọng (PCS)",
                 "% Tỉ trọng đơn",
+                "Sản lượng tồn đọng (PCS)",
                 "% Tỉ trọng PCS"
             ]
 
@@ -2289,7 +2338,7 @@ def render_week_tab(df_filtered: pd.DataFrame, cfg: dict, t: dict, lang: str):
         with col_w_metric:
             w_metric_choice = st.radio(
                 t['lbl_display_metric'],
-                options=[t["opt_qty"], t["opt_orders"]],
+                options=[t["opt_orders"], t["opt_qty"]],
                 horizontal=True,
                 key="rb_week_share_metric"
             )
@@ -2374,7 +2423,6 @@ def render_week_tab(df_filtered: pd.DataFrame, cfg: dict, t: dict, lang: str):
         # Bảng dữ liệu chi tiết
         display_m_week = pd.DataFrame({
             t['lbl_customer_col']: m_week['owner_name'],
-            t['filter_cust_type']: m_week['customer_type'],
             t['col_period_current']: m_week[val_curr_col].apply(lambda v: f"{v:,.0f}"),
             t['col_share_current']: m_week[share_curr_col].apply(lambda v: f"{v:.2f}%"),
             t['col_period_prev']: m_week[val_prev_col].apply(lambda v: f"{v:,.0f}"),
@@ -2388,7 +2436,6 @@ def render_week_tab(df_filtered: pd.DataFrame, cfg: dict, t: dict, lang: str):
         tot_growth = ((tot_curr - tot_prev) / tot_prev * 100) if tot_prev > 0 else 0
         summary_row = {
             t['lbl_customer_col']: t['lbl_total_row'],
-            t['filter_cust_type']: "-",
             t['col_period_current']: f"{tot_curr:,.0f}",
             t['col_share_current']: "100.00%",
             t['col_period_prev']: f"{tot_prev:,.0f}",
@@ -2557,7 +2604,7 @@ def render_month_tab(df_filtered: pd.DataFrame, cfg: dict, t: dict, lang: str):
         with col_m_metric:
             m_metric_choice = st.radio(
                 t['lbl_display_metric'],
-                options=[t["opt_qty"], t["opt_orders"]],
+                options=[t["opt_orders"], t["opt_qty"]],
                 horizontal=True,
                 key="rb_month_share_metric"
             )
@@ -2642,7 +2689,6 @@ def render_month_tab(df_filtered: pd.DataFrame, cfg: dict, t: dict, lang: str):
         # Bảng dữ liệu chi tiết
         display_m_month = pd.DataFrame({
             t['lbl_customer_col']: m_month['owner_name'],
-            t['filter_cust_type']: m_month['customer_type'],
             t['col_period_current']: m_month[val_curr_col].apply(lambda v: f"{v:,.0f}"),
             t['col_share_current']: m_month[share_curr_col].apply(lambda v: f"{v:.2f}%"),
             t['col_period_prev']: m_month[val_prev_col].apply(lambda v: f"{v:,.0f}"),
@@ -2656,7 +2702,6 @@ def render_month_tab(df_filtered: pd.DataFrame, cfg: dict, t: dict, lang: str):
         tot_m_growth = ((tot_m_curr - tot_m_prev) / tot_m_prev * 100) if tot_m_prev > 0 else 0
         summary_m_row = {
             t['lbl_customer_col']: t['lbl_total_row'],
-            t['filter_cust_type']: "-",
             t['col_period_current']: f"{tot_m_curr:,.0f}",
             t['col_share_current']: "100.00%",
             t['col_period_prev']: f"{tot_m_prev:,.0f}",
