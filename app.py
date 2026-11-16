@@ -2017,70 +2017,9 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
                 st.markdown("<div style='height: 14px;'></div>", unsafe_allow_html=True)
 
                 # ==========================================
-                # BẢNG 1: TỔNG HỢP SỐ ĐƠN TỒN THEO TỪNG MỐC HẠN SẢN XUẤT (END TIME)
+                # CHI TIẾT SỐ ĐƠN CỦA TỪNG KHÁCH HÀNG THEO TỪNG MỐC HẠN SẢN XUẤT (MA TRẬN KHÁCH HÀNG X END TIME)
                 # ==========================================
-                st.markdown('<div class="chart-title-banner">PHÂN BỔ SỐ ĐƠN TỒN THEO TỪNG KHUNG GIỜ HẠN SẢN XUẤT (END TIME) TRONG RAW DATA</div>', unsafe_allow_html=True)
-                
-                end_time_grp = df_bl_today.groupby(['end_time_str', 'sla_status']).agg(
-                    total_orders=('order_no', 'nunique'),
-                    dt_sample=('prod_dt', 'min'),
-                    owners=('owner_name', lambda s: ', '.join([f"{k} ({v} đơn)" for k, v in s.value_counts().items()]))
-                ).reset_index().sort_values(by='end_time_str')
-
-                def get_countdown(dt):
-                    diff = dt - now_vn
-                    if diff.total_seconds() < 0:
-                        over = abs(diff)
-                        hrs = int(over.total_seconds() // 3600)
-                        mins = int((over.total_seconds() % 3600) // 60)
-                        return f"🚨 Quá hạn {hrs}h {mins}p"
-                    else:
-                        hrs = int(diff.total_seconds() // 3600)
-                        mins = int((diff.total_seconds() % 3600) // 60)
-                        return f"⏳ Còn {hrs}h {mins}p"
-
-                end_time_grp['time_remain'] = end_time_grp['dt_sample'].apply(get_countdown)
-
-                tot_e_orders = int(end_time_grp['total_orders'].sum())
-                tot_row_e = pd.DataFrame([{
-                    'end_time_str': 'TỔNG CỘNG HÔM NAY',
-                    'total_orders': f"{tot_e_orders:,} đơn",
-                    'sla_status': '-',
-                    'time_remain': '-',
-                    'owners': f"{df_bl_today['owner_name'].nunique()} khách hàng có đơn"
-                }])
-
-                df_e_display = end_time_grp[['end_time_str', 'total_orders', 'sla_status', 'time_remain', 'owners']].copy()
-                df_e_display['total_orders'] = df_e_display['total_orders'].apply(lambda x: f"{x:,.0f} đơn")
-                df_e_display = pd.concat([df_e_display, tot_row_e], ignore_index=True)
-
-                df_e_display.columns = [
-                    "Khung giờ hạn (End Time)",
-                    "Số đơn tồn",
-                    "Trạng thái SLA",
-                    "Thời gian còn lại",
-                    "Khách hàng có đơn"
-                ]
-                st.dataframe(df_e_display, width="stretch", height=min(320, 42 * len(df_e_display) + 40), hide_index=True)
-
-                col_dl_e, _ = st.columns([1.5, 2.5])
-                with col_dl_e:
-                    csv_e_bytes = df_e_display.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
-                    st.download_button(
-                        label="Tải bảng phân bổ khung giờ hạn (.csv)",
-                        data=csv_e_bytes,
-                        file_name=f"packing_end_time_slots_{today_vn.strftime('%Y%m%d')}.csv",
-                        mime="text/csv",
-                        use_container_width=True,
-                        key="btn_dl_packing_end_times"
-                    )
-
-                st.markdown("<div style='height: 14px;'></div>", unsafe_allow_html=True)
-
-                # ==========================================
-                # BẢNG 2: CHI TIẾT SỐ ĐƠN CỦA TỪNG KHÁCH HÀNG THEO TỪNG MỐC HẠN SẢN XUẤT (MA TRẬN KHÁCH HÀNG X END TIME)
-                # ==========================================
-                st.markdown('<div class="chart-title-banner">CHI TIẾT SỐ ĐƠN TỒN CỦA TỪNG KHÁCH HÀNG THEO TỪNG KHUNG GIỜ HẠN</div>', unsafe_allow_html=True)
+                st.markdown('<div class="chart-title-banner">CHI TIẾT SỐ ĐƠN TỒN CỦA TỪNG KHÁCH HÀNG THEO TỪNG KHUNG GIỜ HẠN (PRODUCTION END TIME)</div>', unsafe_allow_html=True)
 
                 pivot_orders = df_bl_today.pivot_table(
                     index='owner_name',
@@ -3520,7 +3459,6 @@ def render_pipeline_summary(cust_type: str, cust_name: str, start_date: datetime
 
             recon_rows.append({
                 t['lbl_customer_col']: o,
-                t['lbl_cust_type_col']: c_type,
                 t['lbl_cust_rec_col']: rec_val,
                 t['lbl_cust_ret_col']: ret_val,
                 t['lbl_cust_pick_col']: pick_val,
@@ -3542,6 +3480,67 @@ def render_pipeline_summary(cust_type: str, cust_name: str, start_date: datetime
         )
     else:
         st.info(t["no_data"])
+
+    # ==========================================
+    # 5. BẢNG 3: CHI TIẾT SỐ ĐƠN TỒN CỦA TỪNG KHÁCH HÀNG THEO TỪNG KHUNG GIỜ HẠN SẢN XUẤT (PRODUCTION END TIME)
+    # ==========================================
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown('<div class="section-title">CHI TIẾT SỐ ĐƠN TỒN CỦA TỪNG KHÁCH HÀNG THEO TỪNG KHUNG GIỜ HẠN (HẠN HÔM NAY)</div>', unsafe_allow_html=True)
+
+    try:
+        df_backlog_all, _ = fetch_backlog_data(cache_version=cur_v)
+        df_bl_filtered = filter_by_customer(df_backlog_all, cust_type, cust_name)
+        now_vn = datetime.datetime.now(VN_TZ).replace(tzinfo=None)
+        today_vn = now_vn.date()
+
+        has_prod_dt = 'prod_dt' in df_bl_filtered.columns and df_bl_filtered['prod_dt'].notnull().any()
+        if has_prod_dt:
+            df_bl_today = df_bl_filtered[df_bl_filtered['prod_dt'].dt.date == today_vn].copy()
+        else:
+            df_bl_today = pd.DataFrame()
+
+        if not df_bl_today.empty:
+            df_bl_today['end_time_str'] = df_bl_today['prod_dt'].dt.strftime('%H:%M:%S')
+
+            pivot_orders = df_bl_today.pivot_table(
+                index='owner_name',
+                columns='end_time_str',
+                values='order_no',
+                aggfunc='nunique',
+                fill_value=0
+            )
+            end_time_cols = sorted(pivot_orders.columns.tolist())
+            pivot_orders['TỔNG ĐƠN TỒN'] = pivot_orders[end_time_cols].sum(axis=1)
+            pivot_orders = pivot_orders.sort_values(by='TỔNG ĐƠN TỒN', ascending=False).reset_index()
+
+            tot_dict = {'owner_name': 'TỔNG CỘNG'}
+            for c in end_time_cols:
+                tot_dict[c] = int(pivot_orders[c].sum())
+            tot_dict['TỔNG ĐƠN TỒN'] = int(pivot_orders['TỔNG ĐƠN TỒN'].sum())
+
+            pivot_display = pd.concat([pivot_orders, pd.DataFrame([tot_dict])], ignore_index=True)
+            pivot_display.rename(columns={'owner_name': 'Khách hàng'}, inplace=True)
+
+            for c in end_time_cols + ['TỔNG ĐƠN TỒN']:
+                pivot_display[c] = pivot_display[c].apply(lambda x: f"{x:,.0f}" if x > 0 else "-")
+
+            st.dataframe(pivot_display, width="stretch", height=min(450, 42 * len(pivot_display) + 40), hide_index=True)
+
+            col_summary_pivot_dl, _ = st.columns([1.5, 2.5])
+            with col_summary_pivot_dl:
+                csv_sum_bytes = pivot_display.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
+                st.download_button(
+                    label="Tải bảng chi tiết đơn tồn theo khung giờ (.csv)",
+                    data=csv_sum_bytes,
+                    file_name=f"Tong_Hop_Don_Ton_Khung_Gio_{today_vn.strftime('%Y%m%d')}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                    key="btn_dl_summary_end_time_pivot"
+                )
+        else:
+            st.info(f"Không có đơn tồn đọng nào có Hạn sản xuất trong ngày hôm nay ({today_vn.strftime('%d/%m/%Y')}).")
+    except Exception as e:
+        st.error(f"Lỗi tải dữ liệu đơn tồn: {e}")
 
 
 
