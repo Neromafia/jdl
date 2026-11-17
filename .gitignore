@@ -3,3 +3,4 @@ credentials.json
 token.json
 __pycache__/
 .streamlit/secrets.toml
+cloud_env_config.txt
