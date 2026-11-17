@@ -150,53 +150,45 @@ def send_zalo_message(message_text: str) -> tuple[bool, str]:
 
 
 def format_sla_alert_message(df_urgent: pd.DataFrame, df_overdue: pd.DataFrame, now_vn: datetime.datetime, urgent_hours: float) -> str:
-    """Tạo nội dung tin nhắn tiếng Việt định dạng chuẩn cảnh báo vận hành kho."""
+    """Tạo nội dung tin nhắn tiếng Việt định dạng tối giản, không emoji, chỉ giữ thông tin cần thiết."""
     tot_urgent = len(df_urgent)
     tot_overdue = len(df_overdue)
     tot_alert = tot_urgent + tot_overdue
 
-    time_str = now_vn.strftime("%H:%M:%S ngày %d/%m/%Y")
+    time_str = now_vn.strftime("%H:%M:%S %d/%m/%Y")
     
     lines = [
-        "🚨 [CẢNH BÁO SLA ĐÓNG GÓI - KHO JDL] 🚨",
-        f"⏰ Quét lúc: {time_str}",
-        f"📊 TỔNG ĐƠN CẦN XỬ LÝ GẤP: {tot_alert:,} đơn",
-        "------------------------------------"
+        "[CẢNH BÁO SLA ĐÓNG GÓI - KHO JDL]",
+        f"Thời gian: {time_str}",
+        f"Tổng đơn cần xử lý gấp: {tot_alert:,} đơn"
     ]
 
     # Đơn đã trễ hạn
     if tot_overdue > 0:
-        lines.append(f"🔴 ĐÃ QUÁ HẠN (OVERDUE): {tot_overdue:,} đơn")
+        lines.append("")
+        lines.append(f"ĐÃ QUÁ HẠN: {tot_overdue:,} đơn")
         cust_overdue = df_overdue.groupby('owner_name').agg(
             cnt=('order_no', 'nunique'),
             times=('production_end_time', lambda s: ", ".join(sorted(set(str(x)[11:16] for x in s if pd.notnull(x)))[:3]))
         ).sort_values(by='cnt', ascending=False)
         for c_name, row in cust_overdue.head(5).iterrows():
-            lines.append(f"  • {c_name}: {row['cnt']:,} đơn (Hạn: {row['times']})")
+            lines.append(f"- {c_name}: {row['cnt']:,} đơn (Hạn: {row['times']})")
         if len(cust_overdue) > 5:
-            lines.append(f"  • Và {len(cust_overdue) - 5} khách hàng khác...")
-        lines.append("------------------------------------")
-    else:
-        lines.append("✅ ĐÃ QUÁ HẠN: 0 đơn")
+            lines.append(f"- Và {len(cust_overdue) - 5} khách hàng khác...")
 
     # Đơn cận hạn trong vòng <= urgent_hours tiếng
     if tot_urgent > 0:
         h_label = f"{urgent_hours:g} tiếng" if urgent_hours >= 1 else f"{int(urgent_hours*60)} phút"
-        lines.append(f"🟡 CẬN HẠN TRONG VÒNG ≤ {h_label.upper()}: {tot_urgent:,} đơn")
+        lines.append("")
+        lines.append(f"CẬN HẠN (<= {h_label}): {tot_urgent:,} đơn")
         cust_urgent = df_urgent.groupby('owner_name').agg(
             cnt=('order_no', 'nunique'),
             times=('production_end_time', lambda s: ", ".join(sorted(set(str(x)[11:16] for x in s if pd.notnull(x)))[:3]))
         ).sort_values(by='cnt', ascending=False)
         for c_name, row in cust_urgent.head(6).iterrows():
-            lines.append(f"  • {c_name}: {row['cnt']:,} đơn (Hạn: {row['times']})")
+            lines.append(f"- {c_name}: {row['cnt']:,} đơn (Hạn: {row['times']})")
         if len(cust_urgent) > 6:
-            lines.append(f"  • Và {len(cust_urgent) - 6} khách hàng khác...")
-        lines.append("------------------------------------")
-    else:
-        lines.append("✅ CẬN HẠN: 0 đơn")
-
-    lines.append("👉 Đề nghị Tổ Đóng Gói ưu tiên xuất & đóng các đơn hàng trên để đảm bảo SLA!")
-    lines.append("🔗 Xem chi tiết tại Dashboard JDL.")
+            lines.append(f"- Và {len(cust_urgent) - 6} khách hàng khác...")
 
     return "\n".join(lines)
 
