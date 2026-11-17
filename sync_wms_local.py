@@ -181,30 +181,25 @@ FOLDERS_CONFIG = [
         },
     },
     {
-        "folder_id":   "1UKwJHy0M1UGmzE9uBAHxC5eNUNHsEtbi",
-        "folder_name": "UNLOADING",
-        "stg_table":   "stg_unloading",
-        "fact_table":  "fact_unloading",
-        "primary_keys":["worker_id","unload_time"],
-        "time_col":    "unload_time",
-        "column_mapping": {
-            "Owner Name":         "owner_name",
-            "Unloading Personnel":"worker_id",
-            "Unloading Time":     "unload_time",
-            "Unload_Staff_ID":    "worker_id",
-            "Unload_Time":        "unload_time",
-        },
-    },
-    {
         "folder_id":   "1ncaVBctXMUkiBggKIs43YrQtfFbIECk4",
-        "folder_name": "UNSHELF",
-        "stg_table":   "stg_unshelf",
-        "fact_table":  "fact_unshelf",
-        "primary_keys":["worker_id","unshelf_time"],
-        "time_col":    "unshelf_time",
+        "folder_name": "ORDER",
+        "stg_table":   "stg_order",
+        "fact_table":  "fact_order",
+        "primary_keys":["order_date", "owner_code", "outbound_type", "order_status"],
+        "time_col":    "order_date",
         "column_mapping": {
-            "Operator":   "worker_id",
-            "Start Time": "unshelf_time",
+            "Date": "order_date",
+            "Owner": "owner_code",
+            "Owner Name": "owner_name",
+            "Outbound Type": "outbound_type",
+            "Order Status": "order_status",
+            "Total Packing QTY.": "total_orders",
+            "7:00": "h07", "8:00": "h08", "9:00": "h09", "10:00": "h10",
+            "11:00": "h11", "12:00": "h12", "13:00": "h13", "14:00": "h14",
+            "15:00": "h15", "16:00": "h16", "17:00": "h17", "18:00": "h18",
+            "19:00": "h19", "20:00": "h20", "21:00": "h21", "22:00": "h22",
+            "23:00": "h23", "00:00": "h00", "01:00": "h01", "02:00": "h02",
+            "03:00": "h03", "04:00": "h04", "05:00": "h05", "06:00": "h06",
         },
     },
     {
@@ -377,6 +372,16 @@ def transform_df_for_stage(df_in, stage_cfg, bq_client):
             df["received_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         else:
             df["received_time"] = df["received_time"].fillna(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+    if stage_cfg["folder_name"] == "ORDER":
+        if "order_date" in df.columns:
+            df["order_date"] = pd.to_datetime(df["order_date"], errors="coerce")
+        numeric_cols = ["total_orders", "h07", "h08", "h09", "h10", "h11", "h12", "h13", "h14",
+                        "h15", "h16", "h17", "h18", "h19", "h20", "h21", "h22", "h23",
+                        "h00", "h01", "h02", "h03", "h04", "h05", "h06"]
+        for c in numeric_cols:
+            if c in df.columns:
+                df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).astype(int)
 
     df.columns = [re.sub(r'[^a-zA-Z0-9_]', '_', c) for c in df.columns]
 

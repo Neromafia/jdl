@@ -336,7 +336,7 @@ def handle_backlog_command(target_chat_id: str = None) -> tuple[bool, str]:
     tạo danh sách đơn sắp trễ (khách hàng -> time remaining) và gửi vào Zalo.
     """
     res = scan_and_alert_backlog_sla(force_send=True, notify_if_safe=True, target_chat_id=target_chat_id)
-    if res.get("status") == "sent":
+    if res.get("status") in ["sent", "no_today_orders", "safe"]:
         return True, res.get("message")
     return False, res.get("message")
 
