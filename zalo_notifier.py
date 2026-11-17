@@ -437,7 +437,143 @@ def format_packing_progress_report(df_pack: pd.DataFrame, df_bl: pd.DataFrame, n
         for _, r in df_b2c.iterrows():
             lines.append(f"- {r['display_name']}: {int(r['orders']):,} đơn ({int(r['pcs']):,} pcs)")
 
+    # Nếu có thông tin pack_time thì bổ sung dự báo Clear Backlog ở cuối
+    if 'pack_time' in df_pack.columns and not df_pack.empty and bl_orders > 0:
+        try:
+            min_t = df_pack['pack_time'].min()
+            max_t = df_pack['pack_time'].max()
+            elapsed_hr = max((max_t - min_t).total_seconds() / 3600.0, 0.5)
+            shift_avg_speed = max(int(tot_packed_orders / elapsed_hr), 1)
+
+            t_60m_ago = max_t - datetime.timedelta(minutes=60)
+            recent_orders = df_pack[df_pack['pack_time'] >= t_60m_ago]['order_no'].nunique() if 'order_no' in df_pack.columns else 0
+            recent_speed = max(recent_orders, 1)
+
+            def fmt_dur(hours):
+                m = int(hours * 60)
+                h = m // 60
+                rem_m = m % 60
+                return f"{h}h{rem_m:02d}p" if h > 0 else f"{rem_m} phút"
+
+            dur_recent = fmt_dur(bl_orders / recent_speed)
+            etc_recent = (now_vn + datetime.timedelta(hours=bl_orders / recent_speed)).strftime('%H:%M')
+
+            lines.append("")
+            lines.append("DỰ KIẾN CLEAR BACKLOG (ETC)")
+            lines.append(f"- Tốc độ hiện tại: {recent_speed:,} đơn/giờ (TB ca: {shift_avg_speed:,} đơn/giờ)")
+            lines.append(f"- Cần thêm: ~{dur_recent} để xử lý {bl_orders:,} đơn tồn")
+            lines.append(f"- Dự kiến hoàn thành: ~{etc_recent} hôm nay")
+        except Exception:
+            pass
+
     return "\n".join(lines)
+
+
+def format_etc_report(df_pack: pd.DataFrame, df_bl: pd.DataFrame, now_vn: datetime.datetime = None) -> str:
+    """Tạo nội dung tin nhắn chuyên sâu dự báo thời gian clear backlog."""
+    if now_vn is None:
+        now_vn = datetime.datetime.now(VN_TZ).replace(tzinfo=None)
+
+    time_str = now_vn.strftime('%H:%M %d/%m/%Y')
+    bl_orders = int(df_bl['order_no'].nunique()) if (df_bl is not None and not df_bl.empty) else 0
+    total_packed = int(df_pack['order_no'].nunique()) if (df_pack is not None and not df_pack.empty) else 0
+
+    if bl_orders == 0:
+        return f"[DỰ BÁO THỜI GIAN CLEAR BACKLOG - KHO JDL]\nThời gian: {time_str}\n\nHiện tại kho đã CLEAR HẾT BACKLOG! Không còn đơn tồn đọng."
+
+    if df_pack is None or df_pack.empty or total_packed == 0:
+        return f"[DỰ BÁO THỜI GIAN CLEAR BACKLOG - KHO JDL]\nThời gian: {time_str}\n\nChưa có sản lượng đóng gói nào hôm nay để tính tốc độ clear hàng."
+
+    min_t = df_pack['pack_time'].min()
+    max_t = df_pack['pack_time'].max()
+    elapsed_hr = max((max_t - min_t).total_seconds() / 3600.0, 0.5)
+    shift_avg_speed = max(int(total_packed / elapsed_hr), 1)
+
+    t_60m_ago = max_t - datetime.timedelta(minutes=60)
+    recent_orders = df_pack[df_pack['pack_time'] >= t_60m_ago]['order_no'].nunique()
+    recent_speed = max(recent_orders, 1)
+
+    def fmt_dur(hours):
+        m = int(hours * 60)
+        h = m // 60
+        rem_m = m % 60
+        return f"{h}h{rem_m:02d}p" if h > 0 else f"{rem_m} phút"
+
+    dur_recent = fmt_dur(bl_orders / recent_speed)
+    etc_recent = (now_vn + datetime.timedelta(hours=bl_orders / recent_speed)).strftime('%H:%M')
+
+    dur_avg = fmt_dur(bl_orders / shift_avg_speed)
+    etc_avg = (now_vn + datetime.timedelta(hours=bl_orders / shift_avg_speed)).strftime('%H:%M')
+
+    s_min = min_t.strftime('%H:%M')
+    s_max = max_t.strftime('%H:%M')
+
+    lines = [
+        "[DỰ BÁO THỜI GIAN CLEAR BACKLOG - KHO JDL]",
+        f"Thời gian: {time_str}",
+        "",
+        "TIẾN ĐỘ HIỆN TẠI",
+        f"- Đã đóng gói: {total_packed:,} đơn (từ {s_min} đến {s_max})",
+        f"- Tồn chờ đóng (Backlog): {bl_orders:,} đơn",
+        "",
+        "TỐC ĐỘ ĐÓNG GÓI",
+        f"- 1 giờ gần nhất: {recent_speed:,} đơn/giờ",
+        f"- Trung bình cả ca: {shift_avg_speed:,} đơn/giờ",
+        "",
+        "DỰ KIẾN HOÀN THÀNH (CLEAR TIME)",
+        f"- Theo tốc độ gần nhất: cần ~{dur_recent} -> Xong lúc ~{etc_recent} hôm nay",
+        f"- Theo tốc độ trung bình ca: cần ~{dur_avg} -> Xong lúc ~{etc_avg} hôm nay"
+    ]
+    return "\n".join(lines)
+
+
+def handle_etc_command(target_chat_id: str = None) -> tuple[bool, str]:
+    """Xử lý lệnh etc / clear: Truy vấn BigQuery và gửi dự báo thời gian clear backlog vào Zalo."""
+    cfg = get_zalo_config()
+    chat_id = target_chat_id or cfg.get("chat_id")
+    if not chat_id:
+        return False, "Chưa xác định được chat_id nhóm Zalo."
+
+    try:
+        from google.cloud import bigquery
+        from google.oauth2 import service_account
+        
+        creds = None
+        if os.path.exists("service_account.json"):
+            creds = service_account.Credentials.from_service_account_file("service_account.json")
+        client = bigquery.Client(credentials=creds, project="jingdong-505914")
+
+        now_vn = datetime.datetime.now(VN_TZ).replace(tzinfo=None)
+        today = now_vn.date()
+
+        sql_pack = f"""
+        SELECT pack_time, order_no
+        FROM `jingdong-505914.wms_data.fact_packing`
+        WHERE DATE(pack_time) = '{today}'
+        """
+        df_pack = client.query(sql_pack).to_dataframe()
+
+        sql_bl = """
+        SELECT order_no
+        FROM `jingdong-505914.wms_data.fact_backlog`
+        """
+        df_bl = client.query(sql_bl).to_dataframe()
+
+    except Exception as e:
+        err_msg = f"[LỖI] Không thể đọc dữ liệu để dự báo ETC: {e}"
+        send_zalo_message(err_msg)
+        return False, err_msg
+
+    report_text = format_etc_report(df_pack, df_bl, now_vn)
+
+    if cfg.get("bot_token") and chat_id:
+        url = f"https://bot-api.zaloplatforms.com/bot{cfg['bot_token']}/sendMessage"
+        res = requests.post(url, json={"chat_id": chat_id, "text": report_text}, headers={"Content-Type": "application/json"}, timeout=15)
+        if res.status_code == 200:
+            return True, "Đã gửi dự báo Clear Time vào Zalo thành công."
+        return False, f"Lỗi Zalo API [{res.status_code}]: {res.text}"
+    else:
+        return send_zalo_message(report_text)
 
 
 _LAST_PACKING_ALERT_STATE = {

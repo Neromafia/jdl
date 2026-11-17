@@ -47,7 +47,7 @@ def start_bot_listener(stop_event: threading.Event = None):
 
     print("🚀 [Zalo Bot Service] Đang khởi động trình lắng nghe lệnh Zalo...", flush=True)
     print(f"⏰ Thời gian bắt đầu: {datetime.datetime.now(VN_TZ).strftime('%H:%M:%S %d/%m/%Y')}", flush=True)
-    print("👉 Hỗ trợ lệnh: backlog (xem đơn sắp trễ), packing (xem tiến độ đóng gói), ping (kiểm tra bot)\n", flush=True)
+    print("👉 Hỗ trợ lệnh: backlog, packing, etc / clear, ping (kiểm tra bot)\n", flush=True)
 
     last_offset = 0
 
@@ -121,14 +121,27 @@ def start_bot_listener(stop_event: threading.Event = None):
                         ok, result_info = zalo_notifier.handle_packing_command(target_chat_id=chat_id)
                         print(f"  ✅ Kết quả packing: {ok} - {result_info}", flush=True)
 
-                    # 3. Lệnh ping hoặc test
+                    # 3. Lệnh etc hoặc clear (Dự báo thời gian clear backlog)
+                    elif "etc" in text_lower or "clear" in text_lower:
+                        print(f"  ⚡ Xử lý lệnh etc/clear cho chat {chat_id}...", flush=True)
+                        requests.post(
+                            url_send,
+                            json={"chat_id": chat_id, "text": "⏳ Đang tính toán tốc độ đóng gói và dự báo thời gian Clear Backlog..."},
+                            headers={"Content-Type": "application/json"},
+                            timeout=10
+                        )
+                        ok, result_info = zalo_notifier.handle_etc_command(target_chat_id=chat_id)
+                        print(f"  ✅ Kết quả etc/clear: {ok} - {result_info}", flush=True)
+
+                    # 4. Lệnh ping hoặc test
                     elif "ping" in text_lower or "test" in text_lower:
                         ping_reply = (
                             f"Bot JingDongLogistics đang hoạt động bình thường!\n"
                             f"Thời gian: {datetime.datetime.now(VN_TZ).strftime('%H:%M %d/%m/%Y')}\n\n"
                             f"Các câu lệnh khả dụng:\n"
                             f"- backlog : Xem danh sách đơn hàng sắp quá hạn SLA (Khách hàng -> Time remaining)\n"
-                            f"- packing : Xem tiến độ đóng gói hôm nay (phân loại B2B vs B2C)"
+                            f"- packing : Xem tiến độ đóng gói hôm nay (phân loại B2B vs B2C)\n"
+                            f"- etc / clear : Dự báo thời gian hoàn thành (Clear Time) dựa trên tốc độ đóng gói thực tế"
                         )
                         requests.post(url_send, json={"chat_id": chat_id, "text": ping_reply}, headers={"Content-Type": "application/json"}, timeout=10)
 
