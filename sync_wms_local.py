@@ -525,6 +525,17 @@ def sync_folder(cfg, drive_svc, bq_client, processed_map, is_full_sync, dry_run,
                 ) = 1
                 """
                 bq_client.query(insert_sql).result()
+
+                # Tự động quét và bắn tin nhắn cảnh báo đơn cận hạn/trễ hạn vào Nhóm Chat Zalo
+                try:
+                    import zalo_notifier
+                    z_res = zalo_notifier.scan_and_alert_backlog_sla(df, force_send=False)
+                    if z_res.get("status") == "sent":
+                        print(f"  📢 Zalo Bot: {z_res.get('message')}")
+                    elif z_res.get("status") == "error":
+                        print(f"  ⚠️ Zalo Bot: {z_res.get('message')}")
+                except Exception:
+                    pass
             else:
                 bq_client.query(merge_sql).result()
 
