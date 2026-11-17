@@ -608,6 +608,16 @@ def main():
     print(f"🚀 Chế độ Tự Động (Daemon Mode) đã kích hoạt: Quét Drive mỗi {args.interval} giây ({args.interval // 60} phút).")
     print("Nhấn Ctrl + C để dừng script bất kỳ lúc nào.\n")
 
+    # Khởi chạy luồng lắng nghe lệnh Zalo Bot (/backlog) đồng thời
+    try:
+        import threading
+        import zalo_bot_service
+        bot_thread = threading.Thread(target=zalo_bot_service.start_bot_listener, daemon=True)
+        bot_thread.start()
+        print("🤖 [Zalo Bot] Luồng lắng nghe lệnh /backlog đã được kích hoạt chạy ngầm.\n")
+    except Exception as e_bot:
+        print(f"⚠️ [Zalo Bot] Không thể bật luồng lắng nghe: {e_bot}\n")
+
     while True:
         try:
             run_sync_cycle(drive_svc, bq_client, args.full, args.dry_run, args.folder)

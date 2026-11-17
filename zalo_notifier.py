@@ -176,11 +176,11 @@ def format_sla_alert_message(df_urgent: pd.DataFrame, df_overdue: pd.DataFrame, 
         if len(cust_overdue) > 5:
             lines.append(f"- Và {len(cust_overdue) - 5} khách hàng khác...")
 
-    # Đơn cận hạn trong vòng <= urgent_hours tiếng
+    # Đơn sắp quá hạn trong vòng <= urgent_hours tiếng
     if tot_urgent > 0:
         h_label = f"{urgent_hours:g} tiếng" if urgent_hours >= 1 else f"{int(urgent_hours*60)} phút"
         lines.append("")
-        lines.append(f"CẬN HẠN (<= {h_label}): {tot_urgent:,} đơn")
+        lines.append(f"SẮP QUÁ HẠN (<= {h_label}): {tot_urgent:,} đơn")
         cust_urgent = df_urgent.groupby('owner_name').agg(
             cnt=('order_no', 'nunique'),
             times=('production_end_time', lambda s: ", ".join(sorted(set(str(x)[11:16] for x in s if pd.notnull(x)))[:3]))
@@ -191,6 +191,139 @@ def format_sla_alert_message(df_urgent: pd.DataFrame, df_overdue: pd.DataFrame, 
             lines.append(f"- Và {len(cust_urgent) - 6} khách hàng khác...")
 
     return "\n".join(lines)
+
+
+def format_detailed_backlog_list(df_backlog: pd.DataFrame, now_vn: datetime.datetime = None, max_hours: float = 2.5) -> list[str]:
+    """
+    Tạo danh sách toàn bộ các đơn sắp trễ SLA (quá hạn hoặc sắp quá hạn <= max_hours tiếng)
+    Sắp xếp theo: Khách hàng -> Thời gian còn lại (Time Remaining).
+    Trả về danh sách các tin nhắn (tự động chia nhỏ nếu vượt quá 1800 ký tự để gửi qua Zalo).
+    """
+    if now_vn is None:
+        now_vn = datetime.datetime.now(VN_TZ).replace(tzinfo=None)
+
+    if df_backlog is None or df_backlog.empty:
+        return [f"[DANH SÁCH ĐƠN HÀNG SẮP QUÁ HẠN SLA]\nThời gian: {now_vn.strftime('%H:%M:%S %d/%m/%Y')}\nKhông có dữ liệu đơn Backlog tồn đọng."]
+
+    df = df_backlog.copy()
+    if 'prod_dt' not in df.columns:
+        df['prod_dt'] = pd.to_datetime(df['production_end_time'], errors='coerce')
+
+    df_today = df[df['prod_dt'].dt.date == now_vn.date()].copy()
+    if df_today.empty:
+        return [f"[DANH SÁCH ĐƠN HÀNG SẮP QUÁ HẠN SLA]\nThời gian: {now_vn.strftime('%H:%M:%S %d/%m/%Y')}\nKhông có đơn nào tồn đọng trong ngày hôm nay."]
+
+    df_today['diff_sec'] = (df_today['prod_dt'] - now_vn).dt.total_seconds()
+    # Lọc đơn quá hạn (diff_sec < 0) hoặc sắp quá hạn trong max_hours
+    df_risk = df_today[df_today['diff_sec'] <= max_hours * 3600].copy()
+
+    if df_risk.empty:
+        next_min_sec = df_today['diff_sec'].min()
+        next_h = next_min_sec / 3600
+        return [
+            f"[DANH SÁCH ĐƠN HÀNG SẮP QUÁ HẠN SLA]\n"
+            f"Thời gian: {now_vn.strftime('%H:%M:%S %d/%m/%Y')}\n"
+            f"Hiện không có đơn nào quá hạn hoặc sắp quá hạn (trong {max_hours:g} tiếng tới).\n"
+            f"Đơn có hạn gần nhất còn khoảng {next_h:.1f} tiếng nữa.\n"
+            f"Tổng đơn tồn hôm nay: {len(df_today):,} đơn."
+        ]
+
+    # Sắp xếp: Khách hàng (owner_name) -> Thời gian còn lại (diff_sec tăng dần)
+    df_risk = df_risk.sort_values(by=['owner_name', 'diff_sec'], ascending=[True, True])
+    total_orders = len(df_risk)
+
+    messages = []
+    current_lines = [
+        "[DANH SÁCH ĐƠN HÀNG SẮP QUÁ HẠN SLA]",
+        f"Thời gian: {now_vn.strftime('%H:%M:%S %d/%m/%Y')}",
+        f"Tổng đơn sắp trễ: {total_orders:,} đơn",
+        ""
+    ]
+
+    for owner, grp in df_risk.groupby('owner_name', sort=False):
+        owner_header = f"Khách hàng: {owner} ({len(grp)} đơn)"
+        lines_for_owner = [owner_header]
+
+        for _, row in grp.iterrows():
+            d_sec = row['diff_sec']
+            if d_sec < 0:
+                over_sec = abs(d_sec)
+                h = int(over_sec // 3600)
+                m = int((over_sec % 3600) // 60)
+                t_rem = f"ĐÃ TRỄ {h}h{m:02d}p" if h > 0 else f"ĐÃ TRỄ {m} phút"
+            else:
+                h = int(d_sec // 3600)
+                m = int((d_sec % 3600) // 60)
+                t_rem = f"còn {h}h{m:02d}p" if h > 0 else f"còn {m} phút"
+
+            dt_str = str(row['production_end_time'])[11:16]
+            lines_for_owner.append(f"- {row['order_no']}: {t_rem} (Hạn {dt_str})")
+
+        lines_for_owner.append("")  # Dòng trống cách giữa các khách hàng
+
+        # Kiểm tra giới hạn 1800 ký tự để chia nhỏ tin nhắn nếu danh sách dài
+        test_text = "\n".join(current_lines + lines_for_owner)
+        if len(test_text) > 1800:
+            messages.append("\n".join(current_lines).strip())
+            current_lines = [
+                "[DANH SÁCH ĐƠN HÀNG SẮP QUÁ HẠN SLA (tiếp theo)]",
+                ""
+            ] + lines_for_owner
+        else:
+            current_lines.extend(lines_for_owner)
+
+    if current_lines:
+        messages.append("\n".join(current_lines).strip())
+
+    return messages
+
+
+def handle_backlog_command(target_chat_id: str = None) -> tuple[bool, str]:
+    """
+    Xử lý lệnh /backlog: Lấy dữ liệu mới nhất từ BigQuery,
+    tạo danh sách đơn sắp trễ (khách hàng -> time remaining) và gửi vào Zalo.
+    """
+    cfg = get_zalo_config()
+    chat_id = target_chat_id or cfg.get("chat_id")
+    if not chat_id:
+        return False, "Chưa xác định được chat_id nhóm Zalo."
+
+    try:
+        from google.cloud import bigquery
+        from google.oauth2 import service_account
+        
+        creds = None
+        if os.path.exists("service_account.json"):
+            creds = service_account.Credentials.from_service_account_file("service_account.json")
+        client = bigquery.Client(credentials=creds, project="jingdong-505914")
+        df = client.query("SELECT * FROM `jingdong-505914.wms_data.fact_backlog`").to_dataframe()
+    except Exception as e:
+        err_msg = f"[LỖI] Không thể đọc dữ liệu Backlog từ BigQuery: {e}"
+        send_zalo_message(err_msg)
+        return False, err_msg
+
+    messages = format_detailed_backlog_list(df, max_hours=2.5)
+    all_ok = True
+    last_err = ""
+
+    for msg in messages:
+        # Gửi từng phần nếu danh sách dài
+        if cfg.get("bot_token") and chat_id:
+            url = f"https://bot-api.zaloplatforms.com/bot{cfg['bot_token']}/sendMessage"
+            res = requests.post(url, json={"chat_id": chat_id, "text": msg}, headers={"Content-Type": "application/json"}, timeout=15)
+            if res.status_code != 200:
+                all_ok = False
+                last_err = f"Lỗi Zalo API [{res.status_code}]: {res.text}"
+        else:
+            ok, err = send_zalo_message(msg)
+            if not ok:
+                all_ok = False
+                last_err = err
+        time.sleep(0.5)
+
+    if all_ok:
+        return True, f"Đã gửi thành công {len(messages)} tin nhắn danh sách đơn sắp trễ."
+    return False, last_err
 
 
 def scan_and_alert_backlog_sla(df_backlog: pd.DataFrame, force_send: bool = False, custom_urgent_hours: float = None) -> dict:
