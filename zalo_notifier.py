@@ -372,6 +372,8 @@ def clean_packing_client_name(name: str) -> str:
         return 'POP MART'
     if 'SHUNCAI' in u:
         return 'SHUNCAI'
+    if 'CORESNAP' in u:
+        return 'CORESNAP'
     if 'TOP ENTERPRISE' in u:
         return 'TOP ENTERPRISE'
     return str(name).strip()
@@ -695,6 +697,150 @@ def handle_packing_command(target_chat_id: str = None) -> tuple[bool, str]:
     if res.get("status") == "sent":
         return True, res.get("message")
     return False, res.get("message")
+
+
+def format_order_progress_report(df_order: pd.DataFrame, now_vn: datetime.datetime = None, target_date_str: str = None) -> str:
+    """
+    Tạo báo cáo số lượng đơn hàng khách đổ xuống hệ thống (ORDER):
+    - Báo tổng đơn nhận.
+    - Phân chia 2 nhóm rõ ràng: B2B (KKV, Chint, Envision...) và B2C (các khách còn lại).
+    - Khách nào đơn = 0 thì không hiện.
+    - Sắp xếp giảm dần theo số đơn.
+    """
+    if now_vn is None:
+        now_vn = datetime.datetime.now(VN_TZ).replace(tzinfo=None)
+
+    time_str = now_vn.strftime('%H:%M %d/%m/%Y')
+
+    if df_order is None or df_order.empty:
+        date_display = target_date_str or now_vn.strftime('%d/%m/%Y')
+        return (
+            f"[TỔNG HỢP ĐƠN HÀNG HỆ THỐNG (ORDER) - KHO JDL]\n"
+            f"Thời gian: {time_str}\n\n"
+            f"Chưa có dữ liệu đơn hàng nào được ghi nhận cho ngày {date_display}."
+        )
+
+    df = df_order.copy()
+    df['total_orders'] = pd.to_numeric(df['total_orders'], errors='coerce').fillna(0).astype(int)
+    df = df[df['total_orders'] > 0]
+
+    if df.empty:
+        return (
+            f"[TỔNG HỢP ĐƠN HÀNG HỆ THỐNG (ORDER) - KHO JDL]\n"
+            f"Thời gian: {time_str}\n\n"
+            f"Tổng số đơn nhận hôm nay: 0 đơn."
+        )
+
+    df['type'] = df['owner_name'].apply(classify_packing_client)
+    df['display_name'] = df['owner_name'].apply(clean_packing_client_name)
+
+    # Gom nhóm theo type và display_name
+    df_agg = df.groupby(['type', 'display_name'], as_index=False)['total_orders'].sum()
+
+    tot_orders = int(df_agg['total_orders'].sum())
+
+    df_b2b = df_agg[df_agg['type'] == 'B2B'].sort_values(by='total_orders', ascending=False)
+    df_b2c = df_agg[df_agg['type'] == 'B2C'].sort_values(by='total_orders', ascending=False)
+
+    b2b_orders = int(df_b2b['total_orders'].sum())
+    b2c_orders = int(df_b2c['total_orders'].sum())
+
+    lines = [
+        "[TỔNG HỢP ĐƠN HÀNG HỆ THỐNG (ORDER) - KHO JDL]",
+        f"Thời gian: {time_str}",
+        "",
+        "TỔNG QUAN",
+        f"- Tổng đơn nhận từ khách: {tot_orders:,} đơn",
+        "",
+        f"KHÁCH HÀNG B2B (Đã nhận: {b2b_orders:,} đơn)"
+    ]
+
+    if df_b2b.empty or b2b_orders == 0:
+        lines.append("- Chưa có đơn nhận")
+    else:
+        for _, r in df_b2b.iterrows():
+            lines.append(f"- {r['display_name']}: {int(r['total_orders']):,} đơn")
+
+    lines.append("")
+    lines.append(f"KHÁCH HÀNG B2C (Đã nhận: {b2c_orders:,} đơn)")
+
+    if df_b2c.empty or b2c_orders == 0:
+        lines.append("- Chưa có đơn nhận")
+    else:
+        for _, r in df_b2c.iterrows():
+            lines.append(f"- {r['display_name']}: {int(r['total_orders']):,} đơn")
+
+    return "\n".join(lines)
+
+
+def handle_order_command(target_chat_id: str = None) -> tuple[bool, str]:
+    """
+    Xử lý khi người dùng nhắn lệnh 'order':
+    Truy vấn BigQuery fact_order, tính tổng đơn nhận và phân loại B2B / B2C theo từng khách hàng.
+    """
+    cfg = get_zalo_config()
+    chat_id = target_chat_id or cfg.get("chat_id")
+    if not chat_id:
+        return False, "Chưa xác định được chat_id nhóm Zalo."
+
+    try:
+        client = get_bigquery_client()
+        now_vn = datetime.datetime.now(VN_TZ).replace(tzinfo=None)
+        today_str = now_vn.strftime('%Y-%m-%d')
+
+        sql_order = f"""
+        SELECT 
+            owner_name,
+            customer_type,
+            SUM(total_orders) as total_orders
+        FROM `jingdong-505914.wms_data.fact_order`
+        WHERE DATE(order_date) = '{today_str}'
+        GROUP BY owner_name, customer_type
+        HAVING total_orders > 0
+        ORDER BY total_orders DESC
+        """
+        df_order = client.query(sql_order).to_dataframe()
+
+        target_date_str = None
+        if df_order.empty:
+            sql_latest = """
+            SELECT MAX(DATE(order_date)) as max_date
+            FROM `jingdong-505914.wms_data.fact_order`
+            """
+            df_latest = client.query(sql_latest).to_dataframe()
+            if not df_latest.empty and df_latest['max_date'].iloc[0] is not None:
+                latest_date = str(df_latest['max_date'].iloc[0])
+                sql_order_latest = f"""
+                SELECT 
+                    owner_name,
+                    customer_type,
+                    SUM(total_orders) as total_orders
+                FROM `jingdong-505914.wms_data.fact_order`
+                WHERE DATE(order_date) = '{latest_date}'
+                GROUP BY owner_name, customer_type
+                HAVING total_orders > 0
+                ORDER BY total_orders DESC
+                """
+                df_order = client.query(sql_order_latest).to_dataframe()
+                target_date_str = latest_date
+
+        report_text = format_order_progress_report(df_order, now_vn=now_vn, target_date_str=target_date_str)
+        if target_date_str and target_date_str != today_str:
+            report_text += f"\n\n*(Lưu ý: Hôm nay ({today_str}) chưa có file Order mới, đang hiển thị dữ liệu ngày gần nhất {target_date_str})*"
+
+    except Exception as e:
+        err_msg = f"[LỖI] Không thể đọc dữ liệu fact_order: {e}"
+        send_zalo_message(err_msg, target_chat_id=chat_id)
+        return False, err_msg
+
+    if cfg.get("bot_token") and chat_id:
+        url = f"https://bot-api.zaloplatforms.com/bot{cfg['bot_token']}/sendMessage"
+        res = requests.post(url, json={"chat_id": chat_id, "text": report_text}, headers={"Content-Type": "application/json"}, timeout=15)
+        if res.status_code == 200:
+            return True, "Đã gửi báo cáo Order vào Zalo thành công."
+        return False, f"Lỗi Zalo API [{res.status_code}]: {res.text}"
+    else:
+        return send_zalo_message(report_text, target_chat_id=chat_id)
 
 
 def scan_and_alert_backlog_sla(

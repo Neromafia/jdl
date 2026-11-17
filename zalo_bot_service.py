@@ -76,15 +76,35 @@ def get_warehouse_realtime_context(ttl_sec: float = 60.0) -> str:
         """
         df_pk = client.query(sql_pk).to_dataframe()
 
+        # 4. Order intake summary today
+        sql_ord = f"""
+        SELECT owner_name, customer_type, SUM(total_orders) as total_orders
+        FROM `jingdong-505914.wms_data.fact_order`
+        WHERE DATE(order_date) = '{today_str}'
+        GROUP BY owner_name, customer_type
+        ORDER BY total_orders DESC
+        """
+        df_ord = client.query(sql_ord).to_dataframe()
+
+        tot_ord_orders = int(df_ord['total_orders'].sum()) if not df_ord.empty else 0
         tot_bl_orders = int(df_bl['orders'].sum()) if not df_bl.empty else 0
         tot_pk_orders = int(df_pk['orders'].sum()) if not df_pk.empty else 0
         tot_pk_pcs = int(df_pk['pcs'].sum()) if not df_pk.empty and 'pcs' in df_pk.columns and pd.notnull(df_pk['pcs'].sum()) else 0
 
         lines = [
             f"DỮ LIỆU THỜI GIAN THỰC KHO JDL (CẬP NHẬT LÚC {now_vn.strftime('%H:%M:%S %d/%m/%Y')}):",
-            f"1. TỒN CHỜ ĐÓNG GÓI (BACKLOG): Tổng cộng {tot_bl_orders:,} đơn.",
-            "Số lượng đơn tồn theo từng khách hàng:"
+            f"1. ĐƠN HÀNG KHÁCH ĐỔ XUỐNG HỆ THỐNG HÔM NAY (ORDER): Tổng cộng {tot_ord_orders:,} đơn."
         ]
+        if not df_ord.empty:
+            lines.append("Số lượng đơn nhận theo từng khách hàng:")
+            for _, r in df_ord.iterrows():
+                if pd.notnull(r['owner_name']):
+                    lines.append(f"- {r['owner_name']} ({r.get('customer_type', 'B2C')}): {int(r['total_orders']):,} đơn")
+
+        lines.extend([
+            f"\n2. TỒN CHỜ ĐÓNG GÓI (BACKLOG): Tổng cộng {tot_bl_orders:,} đơn.",
+            "Số lượng đơn tồn theo từng khách hàng:"
+        ])
         for _, r in df_bl.iterrows():
             if pd.notnull(r['owner_name']):
                 lines.append(f"- {r['owner_name']}: {int(r['orders']):,} đơn tồn")
@@ -144,6 +164,7 @@ def call_gemini_ai(prompt: str, user_name: str = "") -> str:
         return (
             f"Chào {user_name or 'bạn'}! Tôi là Bot Trợ lý Kho Vận JDL (JingDong Logistics).\n\n"
             f"Hiện tại tôi hỗ trợ các lệnh tra cứu số liệu kho tự động:\n"
+            f"- order : Xem tổng đơn nhận và phân loại B2B vs B2C\n"
             f"- backlog : Xem danh sách đơn sắp quá hạn SLA\n"
             f"- packing : Xem tiến độ đóng gói theo nhóm khách hàng\n"
             f"- etc / clear : Dự báo thời gian hoàn thành (Clear Time)\n\n"
@@ -329,21 +350,29 @@ def start_bot_listener(stop_event: threading.Event = None):
                     is_group = chat_id.startswith("zgr-")
                     is_mentioned = any(x in text_lower for x in ["@bot", "@jingdong", "@jdl"])
                     is_reply_to_bot = bool(msg.get("reply_to_message"))
-                    has_command = any(c in text_lower for c in ["backlog", "packing", "dong goi", "etc", "clear", "ping", "test"])
+                    has_command = any(c in text_lower for c in ["order", "don hang", "backlog", "packing", "dong goi", "etc", "clear", "ping", "test"])
 
                     # Trong nhóm chat: chỉ xử lý nếu được tag tên, được reply tin bot, hoặc chứa lệnh trực tiếp
                     if is_group and not (is_mentioned or is_reply_to_bot or has_command):
                         continue
 
-                    # 1. Lệnh backlog
-                    if "backlog" in text_lower:
+                    # 1. Lệnh order (Đơn hàng khách đổ xuống hệ thống)
+                    if "order" in text_lower or "don hang" in text_lower:
+                        print(f"  ⚡ Xử lý lệnh order cho chat {chat_id}...", flush=True)
+                        ok, result_info = zalo_notifier.handle_order_command(target_chat_id=chat_id)
+                        print(f"  ✅ Kết quả order: {ok} - {result_info}", flush=True)
+                        if not ok:
+                            requests.post(url_send, json={"chat_id": chat_id, "text": f"⚠️ Không thể quét đơn order: {result_info}"}, headers={"Content-Type": "application/json"}, timeout=10)
+
+                    # 2. Lệnh backlog
+                    elif "backlog" in text_lower:
                         print(f"  ⚡ Xử lý lệnh backlog cho chat {chat_id}...", flush=True)
                         ok, result_info = zalo_notifier.handle_backlog_command(target_chat_id=chat_id)
                         print(f"  ✅ Kết quả backlog: {ok} - {result_info}", flush=True)
                         if not ok:
                             requests.post(url_send, json={"chat_id": chat_id, "text": f"⚠️ Không thể quét backlog: {result_info}"}, headers={"Content-Type": "application/json"}, timeout=10)
 
-                    # 2. Lệnh packing
+                    # 3. Lệnh packing
                     elif "packing" in text_lower or "dong goi" in text_lower:
                         print(f"  ⚡ Xử lý lệnh packing cho chat {chat_id}...", flush=True)
                         ok, result_info = zalo_notifier.handle_packing_command(target_chat_id=chat_id)
@@ -351,7 +380,7 @@ def start_bot_listener(stop_event: threading.Event = None):
                         if not ok:
                             requests.post(url_send, json={"chat_id": chat_id, "text": f"⚠️ Không thể quét packing: {result_info}"}, headers={"Content-Type": "application/json"}, timeout=10)
 
-                    # 3. Lệnh etc hoặc clear (Dự báo thời gian clear backlog)
+                    # 4. Lệnh etc hoặc clear (Dự báo thời gian clear backlog)
                     elif "etc" in text_lower or "clear" in text_lower:
                         print(f"  ⚡ Xử lý lệnh etc/clear cho chat {chat_id}...", flush=True)
                         ok, result_info = zalo_notifier.handle_etc_command(target_chat_id=chat_id)
@@ -359,12 +388,13 @@ def start_bot_listener(stop_event: threading.Event = None):
                         if not ok:
                             requests.post(url_send, json={"chat_id": chat_id, "text": f"⚠️ Không thể tính ETC: {result_info}"}, headers={"Content-Type": "application/json"}, timeout=10)
 
-                    # 4. Lệnh ping hoặc test
+                    # 5. Lệnh ping hoặc test
                     elif "ping" in text_lower or "test" in text_lower:
                         ping_reply = (
                             f"Bot JingDongLogistics đang hoạt động bình thường!\n"
                             f"Thời gian: {datetime.datetime.now(VN_TZ).strftime('%H:%M %d/%m/%Y')}\n\n"
                             f"Các câu lệnh khả dụng:\n"
+                            f"- order : Xem tổng đơn nhận khách đổ xuống hôm nay (phân loại B2B vs B2C)\n"
                             f"- backlog : Xem danh sách đơn hàng sắp quá hạn SLA (Khách hàng -> Time remaining)\n"
                             f"- packing : Xem tiến độ đóng gói hôm nay (phân loại B2B vs B2C)\n"
                             f"- etc / clear : Dự báo thời gian hoàn thành (Clear Time) dựa trên tốc độ đóng gói thực tế"
