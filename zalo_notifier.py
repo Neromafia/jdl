@@ -542,6 +542,14 @@ def format_etc_report(df_pack: pd.DataFrame, df_bl: pd.DataFrame, now_vn: dateti
     return "\n".join(lines)
 
 
+def get_bigquery_client():
+    """Tạo BigQuery Client sử dụng bộ nạp chứng thực đồng nhất (hỗ trợ cả Env Var trên Cloud)."""
+    from google.cloud import bigquery
+    import sync_wms_local
+    creds = sync_wms_local.get_credentials()
+    return bigquery.Client(credentials=creds, project="jingdong-505914")
+
+
 def handle_etc_command(target_chat_id: str = None) -> tuple[bool, str]:
     """Xử lý lệnh etc / clear: Truy vấn BigQuery và gửi dự báo thời gian clear backlog vào Zalo."""
     cfg = get_zalo_config()
@@ -550,13 +558,7 @@ def handle_etc_command(target_chat_id: str = None) -> tuple[bool, str]:
         return False, "Chưa xác định được chat_id nhóm Zalo."
 
     try:
-        from google.cloud import bigquery
-        from google.oauth2 import service_account
-        
-        creds = None
-        if os.path.exists("service_account.json"):
-            creds = service_account.Credentials.from_service_account_file("service_account.json")
-        client = bigquery.Client(credentials=creds, project="jingdong-505914")
+        client = get_bigquery_client()
 
         now_vn = datetime.datetime.now(VN_TZ).replace(tzinfo=None)
         today = now_vn.date()
@@ -614,13 +616,7 @@ def scan_and_alert_packing_progress(force_send: bool = False, cooldown_minutes: 
         return {"status": "not_configured", "message": "Chưa cấu hình chat_id nhóm Zalo."}
 
     try:
-        from google.cloud import bigquery
-        from google.oauth2 import service_account
-        
-        creds = None
-        if os.path.exists("service_account.json"):
-            creds = service_account.Credentials.from_service_account_file("service_account.json")
-        client = bigquery.Client(credentials=creds, project="jingdong-505914")
+        client = get_bigquery_client()
 
         now_vn = datetime.datetime.now(VN_TZ).replace(tzinfo=None)
         today = now_vn.date()
@@ -719,12 +715,7 @@ def scan_and_alert_backlog_sla(
 
     if df_backlog is None:
         try:
-            from google.cloud import bigquery
-            from google.oauth2 import service_account
-            creds = None
-            if os.path.exists("service_account.json"):
-                creds = service_account.Credentials.from_service_account_file("service_account.json")
-            client = bigquery.Client(credentials=creds, project="jingdong-505914")
+            client = get_bigquery_client()
             df_backlog = client.query("SELECT * FROM `jingdong-505914.wms_data.fact_backlog`").to_dataframe()
         except Exception as e:
             return {"status": "error", "message": f"Không thể đọc BigQuery fact_backlog: {e}"}

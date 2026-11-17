@@ -340,18 +340,24 @@ def start_bot_listener(stop_event: threading.Event = None):
                         print(f"  ⚡ Xử lý lệnh backlog cho chat {chat_id}...", flush=True)
                         ok, result_info = zalo_notifier.handle_backlog_command(target_chat_id=chat_id)
                         print(f"  ✅ Kết quả backlog: {ok} - {result_info}", flush=True)
+                        if not ok:
+                            requests.post(url_send, json={"chat_id": chat_id, "text": f"⚠️ Không thể quét backlog: {result_info}"}, headers={"Content-Type": "application/json"}, timeout=10)
 
                     # 2. Lệnh packing
                     elif "packing" in text_lower or "dong goi" in text_lower:
                         print(f"  ⚡ Xử lý lệnh packing cho chat {chat_id}...", flush=True)
                         ok, result_info = zalo_notifier.handle_packing_command(target_chat_id=chat_id)
                         print(f"  ✅ Kết quả packing: {ok} - {result_info}", flush=True)
+                        if not ok:
+                            requests.post(url_send, json={"chat_id": chat_id, "text": f"⚠️ Không thể quét packing: {result_info}"}, headers={"Content-Type": "application/json"}, timeout=10)
 
                     # 3. Lệnh etc hoặc clear (Dự báo thời gian clear backlog)
                     elif "etc" in text_lower or "clear" in text_lower:
                         print(f"  ⚡ Xử lý lệnh etc/clear cho chat {chat_id}...", flush=True)
                         ok, result_info = zalo_notifier.handle_etc_command(target_chat_id=chat_id)
                         print(f"  ✅ Kết quả etc/clear: {ok} - {result_info}", flush=True)
+                        if not ok:
+                            requests.post(url_send, json={"chat_id": chat_id, "text": f"⚠️ Không thể tính ETC: {result_info}"}, headers={"Content-Type": "application/json"}, timeout=10)
 
                     # 4. Lệnh ping hoặc test
                     elif "ping" in text_lower or "test" in text_lower:
