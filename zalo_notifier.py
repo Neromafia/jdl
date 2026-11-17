@@ -54,6 +54,27 @@ def get_zalo_config() -> dict:
     except Exception:
         pass
 
+    # Đọc từ file secrets.toml cục bộ nếu chưa có cấu hình
+    if not (cfg["bot_token"] or cfg["webhook_url"] or cfg["access_token"]):
+        sec_file = os.path.join(os.path.dirname(__file__), ".streamlit", "secrets.toml")
+        if os.path.exists(sec_file):
+            try:
+                import tomllib
+                with open(sec_file, "rb") as f_sec:
+                    t_sec = tomllib.load(f_sec)
+                    if "zalo" in t_sec:
+                        z_sec = t_sec["zalo"]
+                        cfg["bot_token"] = z_sec.get("bot_token", cfg["bot_token"])
+                        cfg["chat_id"] = z_sec.get("chat_id", cfg["chat_id"])
+                        cfg["webhook_url"] = z_sec.get("webhook_url", cfg["webhook_url"])
+                        cfg["access_token"] = z_sec.get("access_token", cfg["access_token"])
+                        cfg["group_id"] = z_sec.get("group_id", cfg["group_id"])
+                        cfg["enabled"] = bool(z_sec.get("enabled", cfg["enabled"]))
+                        cfg["urgent_hours"] = float(z_sec.get("urgent_hours", cfg["urgent_hours"]))
+                        cfg["cooldown_minutes"] = float(z_sec.get("cooldown_minutes", cfg["cooldown_minutes"]))
+            except Exception:
+                pass
+
     return cfg
 
 

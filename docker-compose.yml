@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  jdl-sync-bot:
+    build: .
+    container_name: jdl-sync-bot
+    restart: always
+    env_file:
+      - .env
+    # Nếu chạy trên VPS/Server, có thể mount file service_account.json trực tiếp:
+    # volumes:
+    #   - ./service_account.json:/app/service_account.json:ro

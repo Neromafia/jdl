@@ -1,0 +1,23 @@
+# File systemd service mẫu cho Ubuntu / Debian VPS
+# Đường dẫn cài đặt đề xuất: /etc/systemd/system/jdl-bot.service
+# Kích hoạt:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable jdl-bot
+#   sudo systemctl start jdl-bot
+#   sudo systemctl status jdl-bot
+
+[Unit]
+Description=JDL Warehouse Drive Sync & Zalo Bot Service 24/7
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/jdl
+ExecStart=/usr/bin/python3 -u sync_wms_local.py --daemon --interval 60
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

@@ -277,7 +277,16 @@ def select_files_to_scan(all_files: list, is_full_sync: bool) -> list:
     return selected
 
 def get_credentials():
-    # 1. Ưu tiên đọc từ Streamlit secrets (định dạng TOML trên Streamlit Cloud)
+    # 1. Đọc từ biến môi trường (chuỗi JSON) - Thường dùng khi deploy lên Cloud/Docker
+    env_json = os.environ.get("GCP_SERVICE_ACCOUNT_JSON") or os.environ.get("GCP_SA_KEY")
+    if env_json:
+        try:
+            sec_dict = json.loads(env_json)
+            return service_account.Credentials.from_service_account_info(sec_dict, scopes=SCOPES)
+        except Exception as e_env:
+            print(f"⚠️ Không thể giải mã GCP_SERVICE_ACCOUNT_JSON: {e_env}")
+
+    # 2. Đọc từ Streamlit secrets (khi chạy trên Streamlit Community Cloud)
     try:
         import streamlit as st
         if hasattr(st, "secrets"):
@@ -295,7 +304,20 @@ def get_credentials():
     except Exception:
         pass
 
-    # 2. Fallback đọc file local service_account.json
+    # 3. Đọc từ file secrets.toml cục bộ nếu có
+    sec_file = os.path.join(os.path.dirname(__file__), ".streamlit", "secrets.toml")
+    if os.path.exists(sec_file):
+        try:
+            import tomllib
+            with open(sec_file, "rb") as f_sec:
+                t_sec = tomllib.load(f_sec)
+                sec_dict = t_sec.get("gcp_service_account") or t_sec.get("service_account")
+                if sec_dict:
+                    return service_account.Credentials.from_service_account_info(sec_dict, scopes=SCOPES)
+        except Exception:
+            pass
+
+    # 4. Fallback đọc file local service_account.json
     if os.path.exists(SERVICE_ACCOUNT_JSON):
         return service_account.Credentials.from_service_account_file(
             SERVICE_ACCOUNT_JSON, scopes=SCOPES)

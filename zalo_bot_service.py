@@ -38,9 +38,8 @@ def get_warehouse_realtime_context(ttl_sec: float = 60.0) -> str:
         from google.oauth2 import service_account
         import pandas as pd
 
-        creds = None
-        if os.path.exists("service_account.json"):
-            creds = service_account.Credentials.from_service_account_file("service_account.json")
+        import sync_wms_local
+        creds = sync_wms_local.get_credentials()
         client = bigquery.Client(credentials=creds, project="jingdong-505914")
 
         now_vn = datetime.datetime.now(VN_TZ).replace(tzinfo=None)
