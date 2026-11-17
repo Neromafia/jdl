@@ -652,6 +652,29 @@ def main():
     except Exception as e_bot:
         print(f"⚠️ [Zalo Bot] Không thể bật luồng lắng nghe: {e_bot}\n")
 
+    # Nếu chạy trên Cloud Web Service (Render/Railway), tự động mở cổng HTTP Health Check
+    port_env = os.environ.get("PORT")
+    if port_env:
+        try:
+            from http.server import HTTPServer, BaseHTTPRequestHandler
+            class HealthHandler(BaseHTTPRequestHandler):
+                def do_GET(self):
+                    self.send_response(200)
+                    self.send_header('Content-type', 'text/plain; charset=utf-8')
+                    self.end_headers()
+                    self.wfile.write(b"OK - JDL Sync & Zalo Bot Service Active 24/7\n")
+                def log_message(self, format, *args):
+                    return
+            def run_health_server():
+                p = int(port_env)
+                httpd = HTTPServer(('0.0.0.0', p), HealthHandler)
+                print(f"🌐 [Cloud Health Server] Đang mở HTTP port {p} cho Cloud Health Check...\n", flush=True)
+                httpd.serve_forever()
+            t_health = threading.Thread(target=run_health_server, daemon=True)
+            t_health.start()
+        except Exception as e_h:
+            print(f"⚠️ [Cloud Health Server] Không thể khởi động: {e_h}\n")
+
     while True:
         try:
             run_sync_cycle(drive_svc, bq_client, args.full, args.dry_run, args.folder)
