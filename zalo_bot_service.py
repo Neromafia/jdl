@@ -9,6 +9,8 @@ Hỗ trợ lệnh:
 import time
 import json
 import os
+import sys
+import socket
 import requests
 import datetime
 import threading
@@ -16,11 +18,28 @@ import zalo_notifier
 
 VN_TZ = zalo_notifier.VN_TZ
 
+_LOCK_SOCKET = None
+
+def acquire_singleton_lock(port: int = 54321) -> bool:
+    """Đảm bảo chỉ có DUY NHẤT 1 tiến trình Bot Zalo chạy trên máy để không bị xung đột getUpdates."""
+    global _LOCK_SOCKET
+    try:
+        _LOCK_SOCKET = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        _LOCK_SOCKET.bind(("127.0.0.1", port))
+        return True
+    except socket.error:
+        return False
+
+
 def start_bot_listener(stop_event: threading.Event = None):
+    if not acquire_singleton_lock():
+        print("⚠️ [Zalo Bot Service] Đã có một tiến trình Bot khác đang chạy ngầm trên máy. Không chạy trùng lặp.", flush=True)
+        return
+
     cfg = zalo_notifier.get_zalo_config()
     bot_token = cfg.get("bot_token")
     if not bot_token:
-        print("❌ [Zalo Bot] Chưa cấu hình bot_token trong secrets.toml hoặc biến môi trường.")
+        print("❌ [Zalo Bot] Chưa cấu hình bot_token trong secrets.toml hoặc biến môi trường.", flush=True)
         return
 
     url_updates = f"https://bot-api.zaloplatforms.com/bot{bot_token}/getUpdates"
