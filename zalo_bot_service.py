@@ -21,6 +21,100 @@ VN_TZ = zalo_notifier.VN_TZ
 
 _LOCK_SOCKET = None
 
+_WAREHOUSE_CONTEXT_CACHE = {
+    "text": "",
+    "timestamp": 0.0
+}
+
+def get_warehouse_realtime_context(ttl_sec: float = 60.0) -> str:
+    """Lấy bản tóm tắt số liệu kho bãi thực tế (Backlog, SLA, Packing) kèm cơ chế cache 60s."""
+    global _WAREHOUSE_CONTEXT_CACHE
+    now_ts = time.time()
+    if _WAREHOUSE_CONTEXT_CACHE["text"] and (now_ts - _WAREHOUSE_CONTEXT_CACHE["timestamp"]) < ttl_sec:
+        return _WAREHOUSE_CONTEXT_CACHE["text"]
+
+    try:
+        from google.cloud import bigquery
+        from google.oauth2 import service_account
+        import pandas as pd
+
+        creds = None
+        if os.path.exists("service_account.json"):
+            creds = service_account.Credentials.from_service_account_file("service_account.json")
+        client = bigquery.Client(credentials=creds, project="jingdong-505914")
+
+        now_vn = datetime.datetime.now(VN_TZ).replace(tzinfo=None)
+        today_str = now_vn.strftime('%Y-%m-%d')
+
+        # 1. Backlog summary
+        sql_bl = """
+        SELECT owner_name, COUNT(DISTINCT order_no) as orders
+        FROM `jingdong-505914.wms_data.fact_backlog`
+        GROUP BY owner_name
+        ORDER BY orders DESC
+        """
+        df_bl = client.query(sql_bl).to_dataframe()
+
+        # 2. SLA risk orders
+        sql_risk = """
+        SELECT order_no, owner_name, production_end_time
+        FROM `jingdong-505914.wms_data.fact_backlog`
+        WHERE production_end_time IS NOT NULL
+        """
+        df_risk_raw = client.query(sql_risk).to_dataframe()
+        df_risk_raw['prod_dt'] = pd.to_datetime(df_risk_raw['production_end_time'], errors='coerce')
+        df_risk_today = df_risk_raw[df_risk_raw['prod_dt'].dt.date == now_vn.date()].copy()
+        df_risk_today['diff_sec'] = (df_risk_today['prod_dt'] - now_vn).dt.total_seconds()
+        df_urgent = df_risk_today[df_risk_today['diff_sec'] <= 2.5 * 3600].copy()
+
+        # 3. Packing summary today
+        sql_pk = f"""
+        SELECT owner_name, COUNT(DISTINCT order_no) as orders, SUM(SAFE_CAST(packing_qty AS INT64)) as pcs
+        FROM `jingdong-505914.wms_data.fact_packing`
+        WHERE DATE(pack_time) = '{today_str}'
+        GROUP BY owner_name
+        ORDER BY orders DESC
+        """
+        df_pk = client.query(sql_pk).to_dataframe()
+
+        tot_bl_orders = int(df_bl['orders'].sum()) if not df_bl.empty else 0
+        tot_pk_orders = int(df_pk['orders'].sum()) if not df_pk.empty else 0
+        tot_pk_pcs = int(df_pk['pcs'].sum()) if not df_pk.empty and 'pcs' in df_pk.columns and pd.notnull(df_pk['pcs'].sum()) else 0
+
+        lines = [
+            f"DỮ LIỆU THỜI GIAN THỰC KHO JDL (CẬP NHẬT LÚC {now_vn.strftime('%H:%M:%S %d/%m/%Y')}):",
+            f"1. TỒN CHỜ ĐÓNG GÓI (BACKLOG): Tổng cộng {tot_bl_orders:,} đơn.",
+            "Số lượng đơn tồn theo từng khách hàng:"
+        ]
+        for _, r in df_bl.iterrows():
+            if pd.notnull(r['owner_name']):
+                lines.append(f"- {r['owner_name']}: {int(r['orders']):,} đơn tồn")
+
+        if not df_urgent.empty:
+            lines.append("\nCác đơn hàng có nguy cơ trễ SLA (quá hạn hoặc cận hạn <= 2.5 tiếng):")
+            for _, r in df_urgent.iterrows():
+                d_sec = r['diff_sec']
+                h = int(abs(d_sec) // 3600)
+                m = int((abs(d_sec) % 3600) // 60)
+                status = f"ĐÃ TRỄ {h}h{m:02d}p" if d_sec < 0 else f"còn {h}h{m:02d}p"
+                dt_str = str(r['production_end_time'])[11:16]
+                lines.append(f"- {r['owner_name']} | Đơn {r['order_no']} | Hạn: {dt_str} ({status})")
+
+        lines.append(f"\n2. TIẾN ĐỘ ĐÓNG GÓI HÔM NAY (PACKING): Đã đóng {tot_pk_orders:,} đơn ({tot_pk_pcs:,} pcs).")
+        lines.append("Sản lượng đã đóng hôm nay theo từng khách hàng:")
+        for _, r in df_pk.iterrows():
+            if pd.notnull(r['owner_name']):
+                lines.append(f"- {r['owner_name']}: {int(r['orders']):,} đơn đã đóng")
+
+        context_str = "\n".join(lines)
+        _WAREHOUSE_CONTEXT_CACHE["text"] = context_str
+        _WAREHOUSE_CONTEXT_CACHE["timestamp"] = now_ts
+        return context_str
+
+    except Exception as e:
+        return f"(Không thể tải dữ liệu realtime kho: {e})"
+
+
 def get_gemini_api_key() -> str:
     """Đọc Gemini API Key từ secrets.toml hoặc biến môi trường."""
     try:
@@ -45,7 +139,7 @@ def get_gemini_api_key() -> str:
 
 
 def call_gemini_ai(prompt: str, user_name: str = "") -> str:
-    """Gọi Gemini API (bản Free) để phản hồi các cuộc trò chuyện thông thường."""
+    """Gọi Gemini AI kết hợp ngữ cảnh dữ liệu thực tế kho JDL để trả lời thông minh bất kỳ câu hỏi nào."""
     api_key = get_gemini_api_key()
     if not api_key:
         return (
@@ -57,19 +151,27 @@ def call_gemini_ai(prompt: str, user_name: str = "") -> str:
             f"👉 Để kích hoạt tính năng trò chuyện AI tự do với Gemini, vui lòng bổ sung gemini.api_key vào file cấu hình."
         )
 
+    # Lấy dữ liệu kho thời gian thực để cấp cho AI
+    warehouse_ctx = get_warehouse_realtime_context()
+
     models_to_try = ["gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-flash-latest"]
     sys_instruction = (
         "Bạn là Trợ lý AI Kho Vận JDL (JingDong Logistics). "
-        "Hãy trả lời ngắn gọn, lịch sự, đúng trọng tâm và chuyên nghiệp bằng tiếng Việt (tối đa 2-3 câu hoặc 1 đoạn ngắn). "
-        "Không dùng icon hoặc ký tự trang trí rườm rà. "
-        "Nếu người dùng muốn xem số liệu kho thời gian thực, hãy hướng dẫn họ gõ: 'backlog', 'packing', hoặc 'etc'."
+        "Dưới đây là DỮ LIỆU THỜI GIAN THỰC ĐANG DIỄN RA TẠI KHO JDL HÔM NAY:\n"
+        f"{warehouse_ctx}\n\n"
+        "HƯỚNG DẪN TRẢ LỜI:\n"
+        "1. Trả lời câu hỏi của người dùng một cách trực tiếp, tự nhiên, chính xác, ngắn gọn (1-3 câu), bằng tiếng Việt.\n"
+        "2. TUYỆT ĐỐI KHÔNG bắt người dùng phải gõ lệnh 'backlog' hay 'packing' vì bạn ĐÃ CÓ TOÀN BỘ SỐ LIỆU THỰC TẾ Ở TRÊN.\n"
+        "3. Nếu người dùng hỏi về khách hàng/đối tác cụ thể (ví dụ: Chint, Chicmax, Jinhe, Mira-Lotus, Pop Mart...): "
+        "Hãy tra cứu đúng tên khách hàng trong dữ liệu trên và trả lời chính xác số đơn tồn, đơn đã đóng, hoặc các đơn sắp trễ SLA (nếu có).\n"
+        "4. Nếu người dùng hỏi các câu hỏi chung (chào hỏi, quy trình, nhân sự...), hãy trả lời thân thiện, lịch thiệp và hữu ích."
     )
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "systemInstruction": {"parts": [{"text": sys_instruction}]},
         "generationConfig": {
-            "temperature": 0.7,
-            "maxOutputTokens": 500
+            "temperature": 0.2,
+            "maxOutputTokens": 400
         }
     }
     headers = {"Content-Type": "application/json"}
