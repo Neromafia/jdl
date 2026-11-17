@@ -90,13 +90,26 @@ def start_bot_listener(stop_event: threading.Event = None):
                         ok, result_info = zalo_notifier.handle_backlog_command(target_chat_id=chat_id)
                         print(f"  ✅ Kết quả /backlog: {ok} - {result_info}", flush=True)
 
-                    # 2. Lệnh /ping hoặc test
+                    # 2. Lệnh /packing
+                    elif "/packing" in text_lower or text_lower.endswith("packing"):
+                        print(f"  ⚡ Xử lý lệnh /packing cho chat {chat_id}...", flush=True)
+                        requests.post(
+                            url_send,
+                            json={"chat_id": chat_id, "text": "⏳ Đang tổng hợp báo cáo tiến độ Đóng Gói hôm nay..."},
+                            headers={"Content-Type": "application/json"},
+                            timeout=10
+                        )
+                        ok, result_info = zalo_notifier.handle_packing_command(target_chat_id=chat_id)
+                        print(f"  ✅ Kết quả /packing: {ok} - {result_info}", flush=True)
+
+                    # 3. Lệnh /ping hoặc test
                     elif text_lower in ["/ping", "ping", "test", "/test"] or "test" in text_lower:
                         ping_reply = (
                             f"Bot JingDongLogistics đang hoạt động bình thường!\n"
-                            f"Thời gian: {datetime.datetime.now(VN_TZ).strftime('%H:%M:%S %d/%m/%Y')}\n\n"
+                            f"Thời gian: {datetime.datetime.now(VN_TZ).strftime('%H:%M %d/%m/%Y')}\n\n"
                             f"Các câu lệnh khả dụng:\n"
-                            f"- /backlog : Xem toàn bộ danh sách đơn hàng sắp quá hạn SLA (sắp xếp theo Khách hàng -> Thời gian còn lại)"
+                            f"- /backlog : Xem danh sách đơn hàng sắp quá hạn SLA (Khách hàng -> Time remaining)\n"
+                            f"- /packing : Xem tiến độ đóng gói hôm nay (phân loại B2B vs B2C)"
                         )
                         requests.post(url_send, json={"chat_id": chat_id, "text": ping_reply}, headers={"Content-Type": "application/json"}, timeout=10)
 

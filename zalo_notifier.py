@@ -326,6 +326,178 @@ def handle_backlog_command(target_chat_id: str = None) -> tuple[bool, str]:
     return False, last_err
 
 
+def classify_packing_client(name: str) -> str:
+    """Phân loại khách hàng B2B (KKV, Chint, Envision) vs B2C (các khách còn lại)."""
+    u = str(name).upper()
+    if any(k in u for k in ['KKV', 'JINHE', 'CHINT', 'ENVISION']):
+        return 'B2B'
+    return 'B2C'
+
+
+def clean_packing_client_name(name: str) -> str:
+    """Rút gọn tên thương hiệu khách hàng cho gọn gàng, dễ nhìn."""
+    u = str(name).upper()
+    if 'KKV' in u or 'JINHE' in u:
+        return 'KKV'
+    if 'CHINT' in u:
+        return 'CHINT'
+    if 'ENVISION' in u:
+        return 'ENVISION'
+    if 'CHICMAX' in u:
+        return 'CHICMAX'
+    if 'YAOYAO' in u:
+        return 'YAOYAO'
+    if 'VENTION' in u:
+        return 'VENTIONVN'
+    if 'MIRA' in u:
+        return 'MIRA-LOTUS'
+    if 'HADAY' in u:
+        return 'HADAY'
+    if 'POP MART' in u:
+        return 'POP MART'
+    if 'SHUNCAI' in u:
+        return 'SHUNCAI'
+    if 'TOP ENTERPRISE' in u:
+        return 'TOP ENTERPRISE'
+    return str(name).strip()
+
+
+def format_packing_progress_report(df_pack: pd.DataFrame, df_bl: pd.DataFrame, now_vn: datetime.datetime = None) -> str:
+    """
+    Tạo báo cáo tiến độ đóng gói theo Mẫu 2:
+    - Chia 2 nhóm rõ ràng: B2B (KKV, Chint, Envision) và B2C (còn lại).
+    - Khách nào sản lượng = 0 thì không hiện.
+    - Không gom 'khách khác', chi tiết từng khách có sản lượng > 0.
+    """
+    if now_vn is None:
+        now_vn = datetime.datetime.now(VN_TZ).replace(tzinfo=None)
+
+    bl_orders = int(df_bl['order_no'].nunique()) if (df_bl is not None and not df_bl.empty) else 0
+
+    if df_pack is None or df_pack.empty:
+        return (
+            f"[TIẾN ĐỘ ĐÓNG GÓI - KHO JDL]\n"
+            f"Thời gian: {now_vn.strftime('%H:%M %d/%m/%Y')}\n\n"
+            f"TỔNG QUAN\n"
+            f"- Đã đóng gói: 0 đơn (0 pcs)\n"
+            f"- Tồn chờ đóng (Backlog): {bl_orders:,} đơn\n"
+            f"- Tỷ lệ hoàn thành: 0.0%\n\n"
+            f"Chưa có sản lượng đóng gói nào được ghi nhận hôm nay."
+        )
+
+    df = df_pack.copy()
+    df['orders'] = pd.to_numeric(df['orders'], errors='coerce').fillna(0)
+    df['pcs'] = pd.to_numeric(df['pcs'], errors='coerce').fillna(0)
+    df = df[df['orders'] > 0]  # Bỏ khách có sản lượng = 0
+
+    df['type'] = df['owner_name'].apply(classify_packing_client)
+    df['display_name'] = df['owner_name'].apply(clean_packing_client_name)
+
+    # Gom theo type và display_name
+    df_agg = df.groupby(['type', 'display_name'], as_index=False)[['orders', 'pcs']].sum()
+
+    tot_packed_orders = int(df_agg['orders'].sum())
+    tot_packed_pcs = int(df_agg['pcs'].sum())
+    tot_workload = tot_packed_orders + bl_orders
+    pct_done = (tot_packed_orders / tot_workload * 100) if tot_workload > 0 else 0.0
+
+    df_b2b = df_agg[df_agg['type'] == 'B2B'].sort_values(by='orders', ascending=False)
+    df_b2c = df_agg[df_agg['type'] == 'B2C'].sort_values(by='orders', ascending=False)
+
+    b2b_orders = int(df_b2b['orders'].sum())
+    b2b_pcs = int(df_b2b['pcs'].sum())
+    b2c_orders = int(df_b2c['orders'].sum())
+    b2c_pcs = int(df_b2c['pcs'].sum())
+
+    time_str = now_vn.strftime('%H:%M %d/%m/%Y')
+    lines = [
+        "[TIẾN ĐỘ ĐÓNG GÓI - KHO JDL]",
+        f"Thời gian: {time_str}",
+        "",
+        "TỔNG QUAN",
+        f"- Đã đóng gói: {tot_packed_orders:,} đơn ({tot_packed_pcs:,} pcs)",
+        f"- Tồn chờ đóng (Backlog): {bl_orders:,} đơn",
+        f"- Tỷ lệ hoàn thành: {pct_done:.1f}%",
+        "",
+        f"KHÁCH HÀNG B2B (Đã đóng: {b2b_orders:,} đơn - {b2b_pcs:,} pcs)"
+    ]
+
+    if df_b2b.empty or b2b_orders == 0:
+        lines.append("- Chưa có sản lượng")
+    else:
+        for _, r in df_b2b.iterrows():
+            lines.append(f"- {r['display_name']}: {int(r['orders']):,} đơn ({int(r['pcs']):,} pcs)")
+
+    lines.append("")
+    lines.append(f"KHÁCH HÀNG B2C (Đã đóng: {b2c_orders:,} đơn - {b2c_pcs:,} pcs)")
+
+    if df_b2c.empty or b2c_orders == 0:
+        lines.append("- Chưa có sản lượng")
+    else:
+        for _, r in df_b2c.iterrows():
+            lines.append(f"- {r['display_name']}: {int(r['orders']):,} đơn ({int(r['pcs']):,} pcs)")
+
+    return "\n".join(lines)
+
+
+def handle_packing_command(target_chat_id: str = None) -> tuple[bool, str]:
+    """
+    Xử lý lệnh /packing: Lấy dữ liệu packing hôm nay & backlog từ BigQuery,
+    tạo báo cáo tiến độ đóng gói (B2B vs B2C) và gửi vào Zalo.
+    """
+    cfg = get_zalo_config()
+    chat_id = target_chat_id or cfg.get("chat_id")
+    if not chat_id:
+        return False, "Chưa xác định được chat_id nhóm Zalo."
+
+    try:
+        from google.cloud import bigquery
+        from google.oauth2 import service_account
+        
+        creds = None
+        if os.path.exists("service_account.json"):
+            creds = service_account.Credentials.from_service_account_file("service_account.json")
+        client = bigquery.Client(credentials=creds, project="jingdong-505914")
+
+        now_vn = datetime.datetime.now(VN_TZ).replace(tzinfo=None)
+        today = now_vn.date()
+
+        sql_pack = f"""
+        SELECT 
+            owner_name,
+            COUNT(DISTINCT order_no) as orders,
+            SUM(SAFE_CAST(packing_qty AS INT64)) as pcs
+        FROM `jingdong-505914.wms_data.fact_packing`
+        WHERE DATE(pack_time) = '{today}'
+        GROUP BY owner_name
+        HAVING orders > 0
+        ORDER BY orders DESC
+        """
+        df_pack = client.query(sql_pack).to_dataframe()
+
+        sql_bl = """
+        SELECT COUNT(DISTINCT order_no) as order_no
+        FROM `jingdong-505914.wms_data.fact_backlog`
+        """
+        df_bl = client.query(sql_bl).to_dataframe()
+
+    except Exception as e:
+        err_msg = f"[LỖI] Không thể đọc dữ liệu Đóng Gói từ BigQuery: {e}"
+        send_zalo_message(err_msg)
+        return False, err_msg
+
+    report_text = format_packing_progress_report(df_pack, df_bl, now_vn)
+
+    if cfg.get("bot_token") and chat_id:
+        url = f"https://bot-api.zaloplatforms.com/bot{cfg['bot_token']}/sendMessage"
+        res = requests.post(url, json={"chat_id": chat_id, "text": report_text}, headers={"Content-Type": "application/json"}, timeout=15)
+        if res.status_code == 200:
+            return True, "Đã gửi thành công báo cáo tiến độ đóng gói vào nhóm Zalo."
+        return False, f"Lỗi Zalo API [{res.status_code}]: {res.text}"
+    else:
+        return send_zalo_message(report_text)
+
+
 def scan_and_alert_backlog_sla(df_backlog: pd.DataFrame, force_send: bool = False, custom_urgent_hours: float = None) -> dict:
     """
     Quét dữ liệu backlog và gửi cảnh báo vào nhóm Zalo nếu có đơn cận hạn hoặc đã trễ.
