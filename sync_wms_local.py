@@ -404,7 +404,7 @@ def sync_folder(cfg, drive_svc, bq_client, processed_map, is_full_sync, dry_run,
         fname = file_meta["name"]
         mtime = file_meta["modifiedTime"]
 
-        if processed_map.get(fid) == mtime:
+        if not is_full_sync and processed_map.get(fid) == mtime:
             skipped += 1
             continue
 
