@@ -28,7 +28,7 @@ def start_bot_listener(stop_event: threading.Event = None):
 
     print("🚀 [Zalo Bot Service] Đang khởi động trình lắng nghe lệnh Zalo...", flush=True)
     print(f"⏰ Thời gian bắt đầu: {datetime.datetime.now(VN_TZ).strftime('%H:%M:%S %d/%m/%Y')}", flush=True)
-    print("👉 Hỗ trợ lệnh: /backlog (xem đơn sắp trễ), /ping (kiểm tra bot)\n", flush=True)
+    print("👉 Hỗ trợ lệnh: backlog (xem đơn sắp trễ), packing (xem tiến độ đóng gói), ping (kiểm tra bot)\n", flush=True)
 
     last_offset = 0
 
@@ -78,9 +78,9 @@ def start_bot_listener(stop_event: threading.Event = None):
                     text_lower = raw_text.lower()
                     print(f"📩 [{sender}] @ chat {chat_id}: '{raw_text}'", flush=True)
 
-                    # 1. Lệnh /backlog
-                    if "/backlog" in text_lower or text_lower.endswith("backlog") or "backlog" in text_lower:
-                        print(f"  ⚡ Xử lý lệnh /backlog cho chat {chat_id}...", flush=True)
+                    # 1. Lệnh backlog
+                    if "backlog" in text_lower:
+                        print(f"  ⚡ Xử lý lệnh backlog cho chat {chat_id}...", flush=True)
                         requests.post(
                             url_send,
                             json={"chat_id": chat_id, "text": "⏳ Đang quét dữ liệu Backlog WMS mới nhất, vui lòng chờ trong giây lát..."},
@@ -88,11 +88,11 @@ def start_bot_listener(stop_event: threading.Event = None):
                             timeout=10
                         )
                         ok, result_info = zalo_notifier.handle_backlog_command(target_chat_id=chat_id)
-                        print(f"  ✅ Kết quả /backlog: {ok} - {result_info}", flush=True)
+                        print(f"  ✅ Kết quả backlog: {ok} - {result_info}", flush=True)
 
-                    # 2. Lệnh /packing
-                    elif "/packing" in text_lower or text_lower.endswith("packing"):
-                        print(f"  ⚡ Xử lý lệnh /packing cho chat {chat_id}...", flush=True)
+                    # 2. Lệnh packing
+                    elif "packing" in text_lower or "dong goi" in text_lower:
+                        print(f"  ⚡ Xử lý lệnh packing cho chat {chat_id}...", flush=True)
                         requests.post(
                             url_send,
                             json={"chat_id": chat_id, "text": "⏳ Đang tổng hợp báo cáo tiến độ Đóng Gói hôm nay..."},
@@ -100,16 +100,16 @@ def start_bot_listener(stop_event: threading.Event = None):
                             timeout=10
                         )
                         ok, result_info = zalo_notifier.handle_packing_command(target_chat_id=chat_id)
-                        print(f"  ✅ Kết quả /packing: {ok} - {result_info}", flush=True)
+                        print(f"  ✅ Kết quả packing: {ok} - {result_info}", flush=True)
 
-                    # 3. Lệnh /ping hoặc test
-                    elif text_lower in ["/ping", "ping", "test", "/test"] or "test" in text_lower:
+                    # 3. Lệnh ping hoặc test
+                    elif "ping" in text_lower or "test" in text_lower:
                         ping_reply = (
                             f"Bot JingDongLogistics đang hoạt động bình thường!\n"
                             f"Thời gian: {datetime.datetime.now(VN_TZ).strftime('%H:%M %d/%m/%Y')}\n\n"
                             f"Các câu lệnh khả dụng:\n"
-                            f"- /backlog : Xem danh sách đơn hàng sắp quá hạn SLA (Khách hàng -> Time remaining)\n"
-                            f"- /packing : Xem tiến độ đóng gói hôm nay (phân loại B2B vs B2C)"
+                            f"- backlog : Xem danh sách đơn hàng sắp quá hạn SLA (Khách hàng -> Time remaining)\n"
+                            f"- packing : Xem tiến độ đóng gói hôm nay (phân loại B2B vs B2C)"
                         )
                         requests.post(url_send, json={"chat_id": chat_id, "text": ping_reply}, headers={"Content-Type": "application/json"}, timeout=10)
 
