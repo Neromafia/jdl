@@ -471,8 +471,7 @@ def sync_folder(cfg, drive_svc, bq_client, processed_map, is_full_sync, dry_run,
             job = bq_client.load_table_from_dataframe(
                 df_stg, stg_ref,
                 job_config=bigquery.LoadJobConfig(
-                    write_disposition="WRITE_TRUNCATE",
-                    schema_update_options=[bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION]
+                    write_disposition="WRITE_TRUNCATE"
                 ))
             job.result()
 
