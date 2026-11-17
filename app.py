@@ -1537,7 +1537,7 @@ def fetch_dow_baselines(cache_version: float = 0.0) -> dict:
         return {}
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=120, show_spinner=False)
 def fetch_backlog_data(cache_version: float = 0.0):
     """Truy vấn dữ liệu tồn đọng backlog & lịch sự kiện cho khâu DỰ KIẾN và ĐÓNG GÓI."""
     client, error = get_bigquery_client()
@@ -2072,11 +2072,16 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
         if not df_bl_filtered.empty:
             now_vn = datetime.datetime.now(VN_TZ).replace(tzinfo=None)
             today_vn = now_vn.date()
+            target_date = end_date if end_date else today_vn
 
-            # Lọc các đơn có hạn sản xuất trong ngày hôm nay
+            # Lọc các đơn có hạn sản xuất trong ngày mục tiêu (hoặc hôm nay)
             has_prod_dt = 'prod_dt' in df_bl_filtered.columns and df_bl_filtered['prod_dt'].notnull().any()
             if has_prod_dt:
-                df_bl_today = df_bl_filtered[df_bl_filtered['prod_dt'].dt.date == today_vn].copy()
+                df_bl_today = df_bl_filtered[df_bl_filtered['prod_dt'].dt.date == target_date].copy()
+                if df_bl_today.empty and target_date != today_vn:
+                    df_bl_today = df_bl_filtered[df_bl_filtered['prod_dt'].dt.date == today_vn].copy()
+                    if not df_bl_today.empty:
+                        target_date = today_vn
             else:
                 df_bl_today = pd.DataFrame()
 
@@ -2110,7 +2115,7 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
                 with c_sla1:
                     st.markdown(f"""
                     <div class="kpi-card">
-                        <div class="kpi-label">HẠN HÔM NAY ({today_vn.strftime('%d/%m')})</div>
+                        <div class="kpi-label">HẠN HÔM NAY ({target_date.strftime('%d/%m')})</div>
                         <div class="kpi-value" style="color: #38bdf8;">{tot_sla_orders:,} <span style="font-size: 13px; color: #94a3b8;">đơn</span></div>
                         <div class="kpi-delta delta-neutral">• Toàn bộ đơn cần xong hôm nay</div>
                     </div>
@@ -2200,7 +2205,7 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
                         df_u_show.columns = ["Mã đơn hàng", "Khách hàng", "Hạn sản xuất (Production End Time)", "Trạng thái SLA", "Số lượng (PCS)"]
                         st.dataframe(df_u_show, width="stretch", height=250, hide_index=True)
             else:
-                st.info(f"Không có đơn tồn đọng nào có Hạn sản xuất (Production End Time) trong ngày hôm nay ({today_vn.strftime('%d/%m/%Y')}).")
+                st.info(f"Không có đơn tồn đọng nào có Hạn sản xuất (Production End Time) trong ngày {target_date.strftime('%d/%m/%Y')}.")
 
             # ==========================================
             # BẢNG 3: TỔNG HỢP TOÀN BỘ ĐƠN TỒN BACKLOG THEO KHÁCH HÀNG (TẤT CẢ CÁC HẠN - ẨN CỘT PHÂN LOẠI)
@@ -3663,19 +3668,27 @@ def render_pipeline_summary(cust_type: str, cust_name: str, start_date: datetime
     # 5. BẢNG 3: CHI TIẾT SỐ ĐƠN TỒN CỦA TỪNG KHÁCH HÀNG THEO TỪNG KHUNG GIỜ HẠN SẢN XUẤT (PRODUCTION END TIME)
     # ==========================================
     st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown('<div class="section-title">CHI TIẾT SỐ ĐƠN TỒN CỦA TỪNG KHÁCH HÀNG THEO TỪNG KHUNG GIỜ HẠN (HẠN HÔM NAY)</div>', unsafe_allow_html=True)
-
     try:
-        df_backlog_all, _ = fetch_backlog_data(cache_version=cur_v)
-        df_bl_filtered = filter_by_customer(df_backlog_all, cust_type, cust_name)
         now_vn = datetime.datetime.now(VN_TZ).replace(tzinfo=None)
         today_vn = now_vn.date()
+        target_date = end_date if end_date else today_vn
+
+        sync_st = get_global_sync_state()
+        cur_v = sync_st.get("data_version", 0.0)
+        df_backlog_all, _ = fetch_backlog_data(cache_version=cur_v)
+        df_bl_filtered = filter_by_customer(df_backlog_all, cust_type, cust_name)
 
         has_prod_dt = 'prod_dt' in df_bl_filtered.columns and df_bl_filtered['prod_dt'].notnull().any()
         if has_prod_dt:
-            df_bl_today = df_bl_filtered[df_bl_filtered['prod_dt'].dt.date == today_vn].copy()
+            df_bl_today = df_bl_filtered[df_bl_filtered['prod_dt'].dt.date == target_date].copy()
+            if df_bl_today.empty and target_date != today_vn:
+                df_bl_today = df_bl_filtered[df_bl_filtered['prod_dt'].dt.date == today_vn].copy()
+                if not df_bl_today.empty:
+                    target_date = today_vn
         else:
             df_bl_today = pd.DataFrame()
+
+        st.markdown(f'<div class="section-title">CHI TIẾT SỐ ĐƠN TỒN CỦA TỪNG KHÁCH HÀNG THEO TỪNG KHUNG GIỜ HẠN (HẠN NGÀY {target_date.strftime("%d/%m")})</div>', unsafe_allow_html=True)
 
         if not df_bl_today.empty:
             df_bl_today['end_time_str'] = df_bl_today['prod_dt'].dt.strftime('%H:%M:%S')
@@ -3716,7 +3729,7 @@ def render_pipeline_summary(cust_type: str, cust_name: str, start_date: datetime
                     key="btn_dl_summary_end_time_pivot"
                 )
         else:
-            st.info(f"Không có đơn tồn đọng nào có Hạn sản xuất trong ngày hôm nay ({today_vn.strftime('%d/%m/%Y')}).")
+            st.info(f"Không có đơn tồn đọng nào có Hạn sản xuất trong ngày {target_date.strftime('%d/%m/%Y')}.")
     except Exception as e:
         st.error(f"Lỗi tải dữ liệu đơn tồn: {e}")
 

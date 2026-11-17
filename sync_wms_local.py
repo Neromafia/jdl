@@ -353,6 +353,8 @@ def transform_df_for_stage(df_in, stage_cfg, bq_client):
             df["piece_qty"] = pd.to_numeric(df["piece_qty"], errors="coerce").fillna(0).astype(float)
         if "received_time" not in df.columns or df["received_time"].isnull().all():
             df["received_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            df["received_time"] = df["received_time"].fillna(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
     df.columns = [re.sub(r'[^a-zA-Z0-9_]', '_', c) for c in df.columns]
 
@@ -468,7 +470,10 @@ def sync_folder(cfg, drive_svc, bq_client, processed_map, is_full_sync, dry_run,
             stg_ref = f"{PROJECT_ID}.{DATASET_ID}.{active_cfg['stg_table']}"
             job = bq_client.load_table_from_dataframe(
                 df_stg, stg_ref,
-                job_config=bigquery.LoadJobConfig(write_disposition="WRITE_TRUNCATE"))
+                job_config=bigquery.LoadJobConfig(
+                    write_disposition="WRITE_TRUNCATE",
+                    schema_update_options=[bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION]
+                ))
             job.result()
 
             schema_map = {f.name: f.field_type for f in target.schema}
