@@ -57,7 +57,7 @@ def call_gemini_ai(prompt: str, user_name: str = "") -> str:
             f"👉 Để kích hoạt tính năng trò chuyện AI tự do với Gemini, vui lòng bổ sung gemini.api_key vào file cấu hình."
         )
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+    models_to_try = ["gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-flash-latest"]
     sys_instruction = (
         "Bạn là Trợ lý AI Kho Vận JDL (JingDong Logistics). "
         "Hãy trả lời ngắn gọn, lịch sự, đúng trọng tâm và chuyên nghiệp bằng tiếng Việt (tối đa 2-3 câu hoặc 1 đoạn ngắn). "
@@ -73,30 +73,22 @@ def call_gemini_ai(prompt: str, user_name: str = "") -> str:
         }
     }
     headers = {"Content-Type": "application/json"}
-    try:
-        r = requests.post(url, json=payload, headers=headers, timeout=12)
-        if r.status_code == 200:
-            data = r.json()
-            candidates = data.get("candidates", [])
-            if candidates:
-                parts = candidates[0].get("content", {}).get("parts", [])
-                if parts:
-                    return parts[0].get("text", "").strip()
 
-        # Fallback thử gemini-1.5-flash
-        url_fb = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
-        r_fb = requests.post(url_fb, json=payload, headers=headers, timeout=12)
-        if r_fb.status_code == 200:
-            data = r_fb.json()
-            candidates = data.get("candidates", [])
-            if candidates:
-                parts = candidates[0].get("content", {}).get("parts", [])
-                if parts:
-                    return parts[0].get("text", "").strip()
+    for model in models_to_try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+        try:
+            r = requests.post(url, json=payload, headers=headers, timeout=12)
+            if r.status_code == 200:
+                data = r.json()
+                candidates = data.get("candidates", [])
+                if candidates:
+                    parts = candidates[0].get("content", {}).get("parts", [])
+                    if parts:
+                        return parts[0].get("text", "").strip()
+        except Exception:
+            continue
 
-        return "Xin lỗi, hiện tại tôi chưa thể kết nối đến máy chủ AI. Bạn hãy thử lại sau ít phút nhé."
-    except Exception as e:
-        return f"Xin lỗi, đã xảy ra lỗi khi kết nối trợ lý AI: {e}"
+    return "Xin lỗi, hiện tại tôi chưa thể kết nối đến máy chủ AI. Bạn hãy thử lại sau ít phút nhé."
 
 def acquire_singleton_lock(port: int = 54321) -> bool:
     """Đảm bảo chỉ có DUY NHẤT 1 tiến trình Bot Zalo chạy trên máy để không bị xung đột getUpdates."""
