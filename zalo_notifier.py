@@ -440,15 +440,27 @@ def format_packing_progress_report(df_pack: pd.DataFrame, df_bl: pd.DataFrame, n
     return "\n".join(lines)
 
 
-def handle_packing_command(target_chat_id: str = None) -> tuple[bool, str]:
+_LAST_PACKING_ALERT_STATE = {
+    "signature": "",
+    "timestamp": 0.0,
+    "last_orders": 0
+}
+
+
+def scan_and_alert_packing_progress(force_send: bool = False, cooldown_minutes: float = 30.0) -> dict:
     """
-    Xử lý lệnh /packing: Lấy dữ liệu packing hôm nay & backlog từ BigQuery,
-    tạo báo cáo tiến độ đóng gói (B2B vs B2C) và gửi vào Zalo.
+    Tự động quét và gửi báo cáo tiến độ đóng gói vào Nhóm Zalo khi có file PACKING mới nạp.
+    - Có cơ chế chống spam (cooldown_minutes) nếu sản lượng không thay đổi.
     """
+    global _LAST_PACKING_ALERT_STATE
+
     cfg = get_zalo_config()
-    chat_id = target_chat_id or cfg.get("chat_id")
+    if not cfg.get("enabled"):
+        return {"status": "disabled", "message": "Tính năng thông báo Zalo đang tắt."}
+
+    chat_id = cfg.get("chat_id")
     if not chat_id:
-        return False, "Chưa xác định được chat_id nhóm Zalo."
+        return {"status": "not_configured", "message": "Chưa cấu hình chat_id nhóm Zalo."}
 
     try:
         from google.cloud import bigquery
@@ -481,21 +493,61 @@ def handle_packing_command(target_chat_id: str = None) -> tuple[bool, str]:
         """
         df_bl = client.query(sql_bl).to_dataframe()
 
+        if df_pack.empty:
+            return {"status": "empty", "message": "Chưa có sản lượng đóng gói nào hôm nay."}
+
+        tot_orders = int(df_pack['orders'].sum())
+        tot_pcs = int(df_pack['pcs'].sum())
+
+        sig = f"{today}_{tot_orders}_{tot_pcs}"
+        now_ts = time.time()
+        cooldown_sec = cooldown_minutes * 60
+
+        if not force_send:
+            if sig == _LAST_PACKING_ALERT_STATE["signature"]:
+                if (now_ts - _LAST_PACKING_ALERT_STATE["timestamp"]) < cooldown_sec:
+                    return {
+                        "status": "skipped_cooldown",
+                        "message": f"Sản lượng đóng gói ({tot_orders:,} đơn) đã gửi gần đây, tạm hoãn gửi lặp lại."
+                    }
+
+        report_text = format_packing_progress_report(df_pack, df_bl, now_vn)
+
+        ok, err = False, ""
+        if cfg.get("bot_token") and chat_id:
+            url = f"https://bot-api.zaloplatforms.com/bot{cfg['bot_token']}/sendMessage"
+            res = requests.post(url, json={"chat_id": chat_id, "text": report_text}, headers={"Content-Type": "application/json"}, timeout=15)
+            if res.status_code == 200:
+                ok = True
+            else:
+                err = f"Lỗi Zalo API [{res.status_code}]: {res.text}"
+        else:
+            ok, err = send_zalo_message(report_text)
+
+        if ok:
+            _LAST_PACKING_ALERT_STATE["signature"] = sig
+            _LAST_PACKING_ALERT_STATE["timestamp"] = now_ts
+            _LAST_PACKING_ALERT_STATE["last_orders"] = tot_orders
+            return {
+                "status": "sent",
+                "message": f"Đã gửi báo cáo tiến độ đóng gói ({tot_orders:,} đơn) vào nhóm Zalo thành công!",
+                "total_orders": tot_orders
+            }
+        else:
+            return {"status": "error", "message": f"Không thể gửi tin Zalo: {err}"}
+
     except Exception as e:
-        err_msg = f"[LỖI] Không thể đọc dữ liệu Đóng Gói từ BigQuery: {e}"
-        send_zalo_message(err_msg)
-        return False, err_msg
+        return {"status": "error", "message": f"Lỗi xử lý báo cáo packing: {e}"}
 
-    report_text = format_packing_progress_report(df_pack, df_bl, now_vn)
 
-    if cfg.get("bot_token") and chat_id:
-        url = f"https://bot-api.zaloplatforms.com/bot{cfg['bot_token']}/sendMessage"
-        res = requests.post(url, json={"chat_id": chat_id, "text": report_text}, headers={"Content-Type": "application/json"}, timeout=15)
-        if res.status_code == 200:
-            return True, "Đã gửi thành công báo cáo tiến độ đóng gói vào nhóm Zalo."
-        return False, f"Lỗi Zalo API [{res.status_code}]: {res.text}"
-    else:
-        return send_zalo_message(report_text)
+def handle_packing_command(target_chat_id: str = None) -> tuple[bool, str]:
+    """
+    Xử lý khi người dùng nhắn lệnh packing: Ép buộc gửi báo cáo mới nhất ngay lập tức.
+    """
+    res = scan_and_alert_packing_progress(force_send=True)
+    if res.get("status") == "sent":
+        return True, res.get("message")
+    return False, res.get("message")
 
 
 def scan_and_alert_backlog_sla(df_backlog: pd.DataFrame, force_send: bool = False, custom_urgent_hours: float = None) -> dict:

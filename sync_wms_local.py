@@ -538,6 +538,18 @@ def sync_folder(cfg, drive_svc, bq_client, processed_map, is_full_sync, dry_run,
             else:
                 bq_client.query(merge_sql).result()
 
+                # Nếu vừa nạp file PACKING mới: Tự động cập nhật tiến độ đóng gói vào Nhóm Zalo
+                if active_cfg["folder_name"] == "PACKING":
+                    try:
+                        import zalo_notifier
+                        z_res = zalo_notifier.scan_and_alert_packing_progress(force_send=False)
+                        if z_res.get("status") == "sent":
+                            print(f"  📢 Zalo Bot: {z_res.get('message')}")
+                        elif z_res.get("status") == "error":
+                            print(f"  ⚠️ Zalo Bot: {z_res.get('message')}")
+                    except Exception:
+                        pass
+
             log_sql = f"""
             MERGE `{LOG_TABLE}` L
             USING (SELECT '{fid}' AS file_id,'{fname}' AS file_name,

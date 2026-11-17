@@ -2152,8 +2152,8 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
                     """, unsafe_allow_html=True)
 
                 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
-                col_zalo_btn, col_zalo_space = st.columns([1, 2])
-                with col_zalo_btn:
+                col_zalo_sla, col_zalo_pack, col_zalo_space = st.columns([1, 1, 1])
+                with col_zalo_sla:
                     if st.button("📢 Gửi cảnh báo SLA vào Nhóm Zalo", key="btn_send_zalo_sla", use_container_width=True):
                         try:
                             import zalo_notifier
@@ -2173,6 +2173,19 @@ def render_day_tab(df_filtered: pd.DataFrame, start_date: datetime.date, end_dat
                                         with st.expander("👀 Xem trước nội dung tin nhắn"):
                                             st.code(z_res.get("preview_message"), language="text")
                         except Exception as ex_z:
+                            st.error(f"Lỗi gửi tin: {ex_z}")
+                with col_zalo_pack:
+                    if st.button("📦 Gửi tiến độ Đóng Gói vào Nhóm Zalo", key="btn_send_zalo_pack", use_container_width=True):
+                        try:
+                            import zalo_notifier
+                            with st.spinner("Đang tổng hợp và gửi tiến độ Đóng Gói vào Nhóm Zalo..."):
+                                z_res = zalo_notifier.scan_and_alert_packing_progress(force_send=True)
+                                if z_res.get("status") == "sent":
+                                    st.success(z_res.get("message"))
+                                else:
+                                    st.error(f"Lỗi: {z_res.get('message')}")
+                        except Exception as ex_p:
+                            st.error(f"Lỗi gửi tin: {ex_p}")
                             st.error(f"Lỗi gửi Zalo: {ex_z}")
 
                 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
