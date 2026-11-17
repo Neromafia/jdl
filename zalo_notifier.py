@@ -29,6 +29,8 @@ _LAST_ALERT_STATE = {
 def get_zalo_config() -> dict:
     """Đọc cấu hình Zalo từ Streamlit secrets hoặc biến môi trường."""
     cfg = {
+        "bot_token": os.environ.get("ZALO_BOT_TOKEN", ""),
+        "chat_id": os.environ.get("ZALO_CHAT_ID", ""),
         "webhook_url": os.environ.get("ZALO_WEBHOOK_URL", ""),
         "access_token": os.environ.get("ZALO_ACCESS_TOKEN", ""),
         "group_id": os.environ.get("ZALO_GROUP_ID", ""),
@@ -41,6 +43,8 @@ def get_zalo_config() -> dict:
         import streamlit as st
         if hasattr(st, "secrets") and "zalo" in st.secrets:
             z_sec = dict(st.secrets["zalo"])
+            cfg["bot_token"] = z_sec.get("bot_token", cfg["bot_token"])
+            cfg["chat_id"] = z_sec.get("chat_id", cfg["chat_id"])
             cfg["webhook_url"] = z_sec.get("webhook_url", cfg["webhook_url"])
             cfg["access_token"] = z_sec.get("access_token", cfg["access_token"])
             cfg["group_id"] = z_sec.get("group_id", cfg["group_id"])
@@ -58,26 +62,51 @@ def is_zalo_configured() -> bool:
     cfg = get_zalo_config()
     if not cfg.get("enabled"):
         return False
-    return bool(cfg.get("webhook_url") or (cfg.get("access_token") and cfg.get("group_id")))
+    return bool(
+        (cfg.get("bot_token") and cfg.get("chat_id"))
+        or cfg.get("webhook_url")
+        or (cfg.get("access_token") and cfg.get("group_id"))
+    )
 
 
 def send_zalo_message(message_text: str) -> tuple[bool, str]:
     """
     Gửi tin nhắn văn bản vào Nhóm Chat Zalo.
-    Trả về (True, "OK") nếu thành công, hoặc (False, "Lý do lỗi").
+    Hỗ trợ 3 phương thức:
+      1. Zalo Bot Platform API (bot_token + chat_id) - Phổ biến & chuẩn mới nhất
+      2. Webhook URL
+      3. Zalo OA OpenAPI (access_token + group_id)
     """
     cfg = get_zalo_config()
     if not cfg.get("enabled"):
         return False, "Tính năng thông báo Zalo đang bị tắt (enabled=False)."
 
+    bot_token = cfg.get("bot_token", "").strip()
+    chat_id = cfg.get("chat_id", "").strip()
     webhook_url = cfg.get("webhook_url", "").strip()
     access_token = cfg.get("access_token", "").strip()
     group_id = cfg.get("group_id", "").strip()
 
-    if not webhook_url and not (access_token and group_id):
-        return False, "Chưa cấu hình Zalo Webhook URL hoặc (Access Token + Group ID)."
+    # 1. Ưu tiên: Zalo Bot Platform API (chuẩn bot-api.zaloplatforms.com)
+    if bot_token and chat_id:
+        url = f"https://bot-api.zaloplatforms.com/bot{bot_token}/sendMessage"
+        headers = {"Content-Type": "application/json"}
+        payload = {
+            "chat_id": chat_id,
+            "text": message_text
+        }
+        try:
+            res = requests.post(url, json=payload, headers=headers, timeout=15)
+            data = res.json()
+            if res.status_code == 200 and data.get("ok", True):
+                return True, "Gửi tin nhắn vào Nhóm Zalo thành công qua Zalo Bot API!"
+            else:
+                err_desc = data.get("description") or data.get("message") or res.text[:200]
+                return False, f"Zalo Bot API lỗi [{res.status_code}]: {err_desc}"
+        except Exception as e:
+            return False, f"Lỗi kết nối Zalo Bot Platform: {str(e)}"
 
-    # 1. Ưu tiên gửi qua Webhook URL nếu được cấu hình
+    # 2. Gửi qua Webhook URL nếu được cấu hình
     if webhook_url:
         try:
             payload = {"text": message_text, "message": message_text}
@@ -90,7 +119,7 @@ def send_zalo_message(message_text: str) -> tuple[bool, str]:
         except Exception as e:
             return False, f"Lỗi kết nối Webhook Zalo: {str(e)}"
 
-    # 2. Gửi qua Zalo OpenAPI chính thức (v3.0/oa/group/message)
+    # 3. Gửi qua Zalo OpenAPI chính thức (v3.0/oa/group/message)
     if access_token and group_id:
         endpoint = "https://openapi.zalo.me/v3.0/oa/group/message"
         headers = {
@@ -117,7 +146,7 @@ def send_zalo_message(message_text: str) -> tuple[bool, str]:
         except Exception as e:
             return False, f"Lỗi gọi Zalo OpenAPI: {str(e)}"
 
-    return False, "Cấu hình Zalo không hợp lệ."
+    return False, "Chưa cấu hình Zalo Bot Token + Chat ID, hoặc Webhook URL."
 
 
 def format_sla_alert_message(df_urgent: pd.DataFrame, df_overdue: pd.DataFrame, now_vn: datetime.datetime, urgent_hours: float) -> str:
