@@ -192,7 +192,7 @@ def call_gemini_ai(prompt: str, user_name: str = "") -> str:
 
     return "Xin lỗi, hiện tại tôi chưa thể kết nối đến máy chủ AI. Bạn hãy thử lại sau ít phút nhé."
 
-def try_schedule_reminder(raw_text: str, sender: str, chat_id: str, bot_token: str, sender_id: str = "", message_id: str = "") -> bool:
+def try_schedule_reminder(raw_text: str, sender: str, chat_id: str, bot_token: str) -> bool:
     """Tự động nhận diện yêu cầu hẹn giờ/nhắc nhở (ví dụ: '15h10 hãy kêu mình nhé' hoặc 'sau 15 phút nhắc tôi')"""
     text_lower = raw_text.lower()
     keywords = ["nhắc", "kêu", "gọi", "báo thức", "hẹn", "đánh thức"]
@@ -230,30 +230,9 @@ def try_schedule_reminder(raw_text: str, sender: str, chat_id: str, bot_token: s
     if delay_sec and 0 < delay_sec <= 43200:
         url_send = f"https://bot-api.zaloplatforms.com/bot{bot_token}/sendMessage"
         def _reminder_task():
-            alert_msg = f"@{sender} ơi, đã đến giờ hẹn rồi nhé ({target_label})! Hết giờ giải lao rồi, quay lại tiếp tục ca làm việc thôi nào!"
-            payload = {
-                "chat_id": chat_id,
-                "text": alert_msg,
-                "mentions": [
-                    {
-                        "pos": 0,
-                        "len": len(sender) + 1,
-                        "uid": sender_id,
-                        "type": 0
-                    }
-                ],
-                "text_styles": [
-                    {
-                        "start": 0,
-                        "len": len(sender) + 1,
-                        "st": ["b", "c_0068ff"]
-                    }
-                ]
-            }
-            if message_id:
-                payload["reply_to_message_id"] = message_id
+            alert_msg = f"⏰ [NHẮC NHỞ] {sender} ơi, đã đến giờ hẹn rồi nhé ({target_label})! Hết giờ giải lao rồi, quay lại tiếp tục ca làm việc thôi nào!"
             try:
-                requests.post(url_send, json=payload, headers={"Content-Type": "application/json"}, timeout=15)
+                requests.post(url_send, json={"chat_id": chat_id, "text": alert_msg}, headers={"Content-Type": "application/json"}, timeout=15)
             except Exception:
                 pass
 
@@ -261,14 +240,8 @@ def try_schedule_reminder(raw_text: str, sender: str, chat_id: str, bot_token: s
         t.daemon = True
         t.start()
 
-        ack_msg = f"Dạ nhận lệnh! Đúng {target_label} mình sẽ nhắc bạn @{sender} nhé, chúc bạn giải lao vui vẻ!"
-        ack_payload = {
-            "chat_id": chat_id,
-            "text": ack_msg
-        }
-        if message_id:
-            ack_payload["reply_to_message_id"] = message_id
-        requests.post(url_send, json=ack_payload, headers={"Content-Type": "application/json"}, timeout=15)
+        ack_msg = f"Dạ nhận lệnh! Đúng {target_label} mình sẽ nhắn nhắc {sender} nhé, chúc bạn giải lao vui vẻ!"
+        requests.post(url_send, json={"chat_id": chat_id, "text": ack_msg}, headers={"Content-Type": "application/json"}, timeout=15)
         return True
 
     return False
@@ -391,14 +364,11 @@ def start_bot_listener(stop_event: threading.Event = None):
                             f"- packing : Xem tiến độ đóng gói hôm nay (phân loại B2B vs B2C)\n"
                             f"- etc / clear : Dự báo thời gian hoàn thành (Clear Time) dựa trên tốc độ đóng gói thực tế"
                         )
-                        ping_payload = {"chat_id": chat_id, "text": ping_reply}
-                        if msg_id:
-                            ping_payload["reply_to_message_id"] = msg_id
-                        requests.post(url_send, json=ping_payload, headers={"Content-Type": "application/json"}, timeout=10)
+                        requests.post(url_send, json={"chat_id": chat_id, "text": ping_reply}, headers={"Content-Type": "application/json"}, timeout=10)
 
                     # 5. Kiểm tra yêu cầu hẹn giờ / nhắc nhở
-                    elif try_schedule_reminder(raw_text, sender, chat_id, bot_token, sender_id=sender_id, message_id=msg_id):
-                        print(f"  ⏰ Đã lên lịch nhắc nhở cho [{sender}] (id: {sender_id}) tại chat {chat_id}", flush=True)
+                    elif try_schedule_reminder(raw_text, sender, chat_id, bot_token):
+                        print(f"  ⏰ Đã lên lịch nhắc nhở cho [{sender}] tại chat {chat_id}", flush=True)
 
                     # 6. Các câu hỏi trò chuyện thông thường khác -> Chuyển sang Gemini AI
                     else:
@@ -406,10 +376,7 @@ def start_bot_listener(stop_event: threading.Event = None):
                         if clean_prompt:
                             print(f"  🤖 Gửi câu hỏi cho Gemini AI: '{clean_prompt}'...", flush=True)
                             ai_reply = call_gemini_ai(clean_prompt, user_name=sender)
-                            ai_payload = {"chat_id": chat_id, "text": ai_reply}
-                            if msg_id:
-                                ai_payload["reply_to_message_id"] = msg_id
-                            requests.post(url_send, json=ai_payload, headers={"Content-Type": "application/json"}, timeout=15)
+                            requests.post(url_send, json={"chat_id": chat_id, "text": ai_reply}, headers={"Content-Type": "application/json"}, timeout=15)
 
             else:
                 print(f"⚠️ [Zalo Bot] HTTP {res.status_code}: {res.text[:150]}")
