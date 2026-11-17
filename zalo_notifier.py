@@ -195,8 +195,10 @@ def format_sla_alert_message(df_urgent: pd.DataFrame, df_overdue: pd.DataFrame, 
 
 def format_detailed_backlog_list(df_backlog: pd.DataFrame, now_vn: datetime.datetime = None, max_hours: float = 2.5) -> list[str]:
     """
-    Tạo danh sách toàn bộ các đơn sắp trễ SLA (quá hạn hoặc sắp quá hạn <= max_hours tiếng)
-    Sắp xếp theo: Khách hàng -> Thời gian còn lại (Time Remaining).
+    Tạo danh sách toàn bộ các đơn sắp trễ SLA (quá hạn hoặc sắp quá hạn <= max_hours tiếng).
+    Phân tách rõ ràng giữa ĐÃ QUÁ HẠN và SẮP QUÁ HẠN:
+      - Đơn đã trễ hạn luôn được đưa lên ĐẦU danh sách để ưu tiên xử lý gấp.
+      - Sắp xếp theo: Khách hàng -> Thời gian còn lại.
     Trả về danh sách các tin nhắn (tự động chia nhỏ nếu vượt quá 1800 ký tự để gửi qua Zalo).
     """
     if now_vn is None:
@@ -214,7 +216,7 @@ def format_detailed_backlog_list(df_backlog: pd.DataFrame, now_vn: datetime.date
         return [f"[DANH SÁCH ĐƠN HÀNG SẮP QUÁ HẠN SLA]\nThời gian: {now_vn.strftime('%H:%M:%S %d/%m/%Y')}\nKhông có đơn nào tồn đọng trong ngày hôm nay."]
 
     df_today['diff_sec'] = (df_today['prod_dt'] - now_vn).dt.total_seconds()
-    # Lọc đơn quá hạn (diff_sec < 0) hoặc sắp quá hạn trong max_hours
+    # Lọc đơn rủi ro: quá hạn (diff_sec < 0) hoặc sắp quá hạn trong max_hours
     df_risk = df_today[df_today['diff_sec'] <= max_hours * 3600].copy()
 
     if df_risk.empty:
@@ -228,49 +230,78 @@ def format_detailed_backlog_list(df_backlog: pd.DataFrame, now_vn: datetime.date
             f"Tổng đơn tồn hôm nay: {len(df_today):,} đơn."
         ]
 
-    # Sắp xếp: Khách hàng (owner_name) -> Thời gian còn lại (diff_sec tăng dần)
-    df_risk = df_risk.sort_values(by=['owner_name', 'diff_sec'], ascending=[True, True])
-    total_orders = len(df_risk)
+    # Tách bạch rõ ràng ĐÃ QUÁ HẠN vs SẮP QUÁ HẠN
+    df_overdue = df_risk[df_risk['diff_sec'] < 0].copy()
+    df_urgent  = df_risk[df_risk['diff_sec'] >= 0].copy()
+
+    tot_overdue = len(df_overdue)
+    tot_urgent  = len(df_urgent)
+    total_orders = tot_overdue + tot_urgent
+
+    # Tiêu đề tóm tắt rõ số lượng từng loại
+    if tot_overdue > 0 and tot_urgent > 0:
+        summary_line = f"Tổng đơn cần xử lý: {total_orders:,} đơn (Đã trễ: {tot_overdue:,} | Sắp trễ: {tot_urgent:,})"
+    elif tot_overdue > 0:
+        summary_line = f"Tổng đơn ĐÃ QUÁ HẠN: {tot_overdue:,} đơn"
+    else:
+        summary_line = f"Tổng đơn SẮP QUÁ HẠN: {tot_urgent:,} đơn"
 
     messages = []
     current_lines = [
         "[DANH SÁCH ĐƠN HÀNG SẮP QUÁ HẠN SLA]",
         f"Thời gian: {now_vn.strftime('%H:%M:%S %d/%m/%Y')}",
-        f"Tổng đơn sắp trễ: {total_orders:,} đơn",
+        summary_line,
         ""
     ]
 
-    for owner, grp in df_risk.groupby('owner_name', sort=False):
-        owner_header = f"Khách hàng: {owner} ({len(grp)} đơn)"
-        lines_for_owner = [owner_header]
+    def _append_section(sub_df: pd.DataFrame, section_title: str):
+        nonlocal current_lines
+        if sub_df.empty:
+            return
+        
+        current_lines.append(section_title)
+        sub_sorted = sub_df.sort_values(by=['owner_name', 'diff_sec'], ascending=[True, True])
+        
+        for owner, grp in sub_sorted.groupby('owner_name', sort=False):
+            owner_header = f"Khách hàng: {owner} ({len(grp)} đơn)"
+            lines_for_owner = [owner_header]
 
-        for _, row in grp.iterrows():
-            d_sec = row['diff_sec']
-            if d_sec < 0:
-                over_sec = abs(d_sec)
-                h = int(over_sec // 3600)
-                m = int((over_sec % 3600) // 60)
-                t_rem = f"ĐÃ TRỄ {h}h{m:02d}p" if h > 0 else f"ĐÃ TRỄ {m} phút"
+            for _, row in grp.iterrows():
+                d_sec = row['diff_sec']
+                if d_sec < 0:
+                    over_sec = abs(d_sec)
+                    h = int(over_sec // 3600)
+                    m = int((over_sec % 3600) // 60)
+                    t_rem = f"ĐÃ TRỄ {h}h{m:02d}p" if h > 0 else f"ĐÃ TRỄ {m} phút"
+                else:
+                    h = int(d_sec // 3600)
+                    m = int((d_sec % 3600) // 60)
+                    t_rem = f"còn {h}h{m:02d}p" if h > 0 else f"còn {m} phút"
+
+                dt_str = str(row['production_end_time'])[11:16]
+                lines_for_owner.append(f"- {row['order_no']}: {t_rem} (Hạn {dt_str})")
+
+            lines_for_owner.append("")  # Dòng trống cách giữa các khách hàng
+
+            # Kiểm tra độ dài tin nhắn (Zalo giới hạn ~2000 ký tự)
+            test_text = "\n".join(current_lines + lines_for_owner)
+            if len(test_text) > 1800:
+                messages.append("\n".join(current_lines).strip())
+                current_lines = [
+                    "[DANH SÁCH ĐƠN HÀNG SẮP QUÁ HẠN SLA (tiếp theo)]",
+                    ""
+                ] + lines_for_owner
             else:
-                h = int(d_sec // 3600)
-                m = int((d_sec % 3600) // 60)
-                t_rem = f"còn {h}h{m:02d}p" if h > 0 else f"còn {m} phút"
+                current_lines.extend(lines_for_owner)
 
-            dt_str = str(row['production_end_time'])[11:16]
-            lines_for_owner.append(f"- {row['order_no']}: {t_rem} (Hạn {dt_str})")
+    # 1. ĐƯA ĐƠN ĐÃ QUÁ HẠN LÊN ĐẦU TIÊN
+    if tot_overdue > 0:
+        _append_section(df_overdue, f"ĐÃ QUÁ HẠN ({tot_overdue:,} đơn)")
 
-        lines_for_owner.append("")  # Dòng trống cách giữa các khách hàng
-
-        # Kiểm tra giới hạn 1800 ký tự để chia nhỏ tin nhắn nếu danh sách dài
-        test_text = "\n".join(current_lines + lines_for_owner)
-        if len(test_text) > 1800:
-            messages.append("\n".join(current_lines).strip())
-            current_lines = [
-                "[DANH SÁCH ĐƠN HÀNG SẮP QUÁ HẠN SLA (tiếp theo)]",
-                ""
-            ] + lines_for_owner
-        else:
-            current_lines.extend(lines_for_owner)
+    # 2. TIẾP THEO LÀ ĐƠN SẮP QUÁ HẠN
+    if tot_urgent > 0:
+        h_label = f"{max_hours:g} tiếng" if max_hours >= 1 else f"{int(max_hours*60)} phút"
+        _append_section(df_urgent, f"SẮP QUÁ HẠN (<= {h_label}) ({tot_urgent:,} đơn)")
 
     if current_lines:
         messages.append("\n".join(current_lines).strip())
