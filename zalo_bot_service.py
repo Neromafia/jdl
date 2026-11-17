@@ -192,6 +192,61 @@ def call_gemini_ai(prompt: str, user_name: str = "") -> str:
 
     return "Xin lỗi, hiện tại tôi chưa thể kết nối đến máy chủ AI. Bạn hãy thử lại sau ít phút nhé."
 
+def try_schedule_reminder(raw_text: str, sender: str, chat_id: str, bot_token: str) -> bool:
+    """Tự động nhận diện yêu cầu hẹn giờ/nhắc nhở (ví dụ: '15h10 hãy kêu mình nhé' hoặc 'sau 15 phút nhắc tôi')"""
+    text_lower = raw_text.lower()
+    keywords = ["nhắc", "kêu", "gọi", "báo thức", "hẹn", "đánh thức"]
+    if not any(k in text_lower for k in keywords):
+        return False
+
+    now_vn = datetime.datetime.now(VN_TZ).replace(tzinfo=None)
+    delay_sec = None
+    target_label = ""
+
+    # Dạng 1: "sau X phút" / "sau X tiếng"
+    m_after = re.search(r'sau\s*(\d+)\s*(phút|tiếng|h|p)', text_lower)
+    if m_after:
+        val = int(m_after.group(1))
+        unit = m_after.group(2)
+        if unit in ["tiếng", "h"]:
+            delay_sec = val * 3600
+            target_label = f"sau {val} tiếng"
+        else:
+            delay_sec = val * 60
+            target_label = f"sau {val} phút"
+
+    # Dạng 2: "lúc 15h10", "15h10", "15:10"
+    if delay_sec is None:
+        m_time = re.search(r'(\d{1,2})[h:](\d{1,2})?', text_lower)
+        if m_time:
+            hour = int(m_time.group(1))
+            minute = int(m_time.group(2)) if m_time.group(2) else 0
+            if 0 <= hour <= 23 and 0 <= minute <= 59:
+                target_dt = now_vn.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                if target_dt > now_vn:
+                    delay_sec = (target_dt - now_vn).total_seconds()
+                    target_label = f"lúc {hour:02d}h{minute:02d}"
+
+    if delay_sec and 0 < delay_sec <= 43200:
+        url_send = f"https://bot-api.zaloplatforms.com/bot{bot_token}/sendMessage"
+        def _reminder_task():
+            alert_msg = f"@{sender} ơi, đã đến giờ rồi nhé ({target_label})! Hết giờ giải lao rồi, quay lại tiếp tục ca làm việc thôi nào!"
+            try:
+                requests.post(url_send, json={"chat_id": chat_id, "text": alert_msg}, headers={"Content-Type": "application/json"}, timeout=15)
+            except Exception:
+                pass
+
+        t = threading.Timer(delay_sec, _reminder_task)
+        t.daemon = True
+        t.start()
+
+        ack_msg = f"Dạ nhận lệnh! Đúng {target_label} mình sẽ tag bạn @{sender} nhé, chúc bạn giải lao vui vẻ!"
+        requests.post(url_send, json={"chat_id": chat_id, "text": ack_msg}, headers={"Content-Type": "application/json"}, timeout=15)
+        return True
+
+    return False
+
+
 def acquire_singleton_lock(port: int = 54321) -> bool:
     """Đảm bảo chỉ có DUY NHẤT 1 tiến trình Bot Zalo chạy trên máy để không bị xung đột getUpdates."""
     global _LOCK_SOCKET
@@ -308,7 +363,11 @@ def start_bot_listener(stop_event: threading.Event = None):
                         )
                         requests.post(url_send, json={"chat_id": chat_id, "text": ping_reply}, headers={"Content-Type": "application/json"}, timeout=10)
 
-                    # 5. Các câu hỏi trò chuyện thông thường khác -> Chuyển sang Gemini AI
+                    # 5. Kiểm tra yêu cầu hẹn giờ / nhắc nhở
+                    elif try_schedule_reminder(raw_text, sender, chat_id, bot_token):
+                        print(f"  ⏰ Đã lên lịch nhắc nhở cho [{sender}] tại chat {chat_id}", flush=True)
+
+                    # 6. Các câu hỏi trò chuyện thông thường khác -> Chuyển sang Gemini AI
                     else:
                         clean_prompt = re.sub(r'@\S+', '', raw_text).strip()
                         if clean_prompt:
