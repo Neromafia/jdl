@@ -69,7 +69,7 @@ def is_zalo_configured() -> bool:
     )
 
 
-def send_zalo_message(message_text: str) -> tuple[bool, str]:
+def send_zalo_message(message_text: str, target_chat_id: str = None) -> tuple[bool, str]:
     """
     Gửi tin nhắn văn bản vào Nhóm Chat Zalo.
     Hỗ trợ 3 phương thức:
@@ -82,7 +82,7 @@ def send_zalo_message(message_text: str) -> tuple[bool, str]:
         return False, "Tính năng thông báo Zalo đang bị tắt (enabled=False)."
 
     bot_token = cfg.get("bot_token", "").strip()
-    chat_id = cfg.get("chat_id", "").strip()
+    chat_id = (target_chat_id or cfg.get("chat_id", "")).strip()
     webhook_url = cfg.get("webhook_url", "").strip()
     access_token = cfg.get("access_token", "").strip()
     group_id = cfg.get("group_id", "").strip()
@@ -283,47 +283,10 @@ def handle_backlog_command(target_chat_id: str = None) -> tuple[bool, str]:
     Xử lý lệnh /backlog: Lấy dữ liệu mới nhất từ BigQuery,
     tạo danh sách đơn sắp trễ (khách hàng -> time remaining) và gửi vào Zalo.
     """
-    cfg = get_zalo_config()
-    chat_id = target_chat_id or cfg.get("chat_id")
-    if not chat_id:
-        return False, "Chưa xác định được chat_id nhóm Zalo."
-
-    try:
-        from google.cloud import bigquery
-        from google.oauth2 import service_account
-        
-        creds = None
-        if os.path.exists("service_account.json"):
-            creds = service_account.Credentials.from_service_account_file("service_account.json")
-        client = bigquery.Client(credentials=creds, project="jingdong-505914")
-        df = client.query("SELECT * FROM `jingdong-505914.wms_data.fact_backlog`").to_dataframe()
-    except Exception as e:
-        err_msg = f"[LỖI] Không thể đọc dữ liệu Backlog từ BigQuery: {e}"
-        send_zalo_message(err_msg)
-        return False, err_msg
-
-    messages = format_detailed_backlog_list(df, max_hours=2.5)
-    all_ok = True
-    last_err = ""
-
-    for msg in messages:
-        # Gửi từng phần nếu danh sách dài
-        if cfg.get("bot_token") and chat_id:
-            url = f"https://bot-api.zaloplatforms.com/bot{cfg['bot_token']}/sendMessage"
-            res = requests.post(url, json={"chat_id": chat_id, "text": msg}, headers={"Content-Type": "application/json"}, timeout=15)
-            if res.status_code != 200:
-                all_ok = False
-                last_err = f"Lỗi Zalo API [{res.status_code}]: {res.text}"
-        else:
-            ok, err = send_zalo_message(msg)
-            if not ok:
-                all_ok = False
-                last_err = err
-        time.sleep(0.5)
-
-    if all_ok:
-        return True, f"Đã gửi thành công {len(messages)} tin nhắn danh sách đơn sắp trễ."
-    return False, last_err
+    res = scan_and_alert_backlog_sla(force_send=True, notify_if_safe=True, target_chat_id=target_chat_id)
+    if res.get("status") == "sent":
+        return True, res.get("message")
+    return False, res.get("message")
 
 
 def classify_packing_client(name: str) -> str:
@@ -686,26 +649,47 @@ def handle_packing_command(target_chat_id: str = None) -> tuple[bool, str]:
     return False, res.get("message")
 
 
-def scan_and_alert_backlog_sla(df_backlog: pd.DataFrame, force_send: bool = False, custom_urgent_hours: float = None, notify_if_safe: bool = False) -> dict:
+def scan_and_alert_backlog_sla(
+    df_backlog: pd.DataFrame = None, 
+    force_send: bool = False, 
+    custom_urgent_hours: float = 2.5, 
+    notify_if_safe: bool = True,
+    target_chat_id: str = None
+) -> dict:
     """
-    Quét dữ liệu backlog và gửi cảnh báo vào nhóm Zalo nếu có đơn cận hạn hoặc đã trễ.
-    - custom_urgent_hours: số giờ cận hạn (mặc định đọc từ config, thường là 1.0 tiếng).
-    - force_send: bỏ qua cơ chế chống spam (dùng khi người dùng bấm nút test/bắn tin thủ công hoặc vừa nạp file mới).
+    Quét dữ liệu backlog và gửi báo cáo chi tiết đơn sắp trễ SLA vào nhóm Zalo.
+    Sử dụng định dạng chi tiết giống như khi gõ lệnh 'backlog' (nhóm theo Khách hàng -> Đơn hàng -> Thời gian còn lại).
+    - custom_urgent_hours: mốc giờ cảnh báo (mặc định 2.5 tiếng).
+    - force_send: bỏ qua cơ chế chống spam (dùng khi vừa nạp file mới hoặc gõ lệnh).
     - notify_if_safe: nếu True và không có đơn trễ (0 đơn rủi ro), vẫn gửi tin xác nhận an toàn vào nhóm.
     """
     global _LAST_ALERT_STATE
+
+    if df_backlog is None:
+        try:
+            from google.cloud import bigquery
+            from google.oauth2 import service_account
+            creds = None
+            if os.path.exists("service_account.json"):
+                creds = service_account.Credentials.from_service_account_file("service_account.json")
+            client = bigquery.Client(credentials=creds, project="jingdong-505914")
+            df_backlog = client.query("SELECT * FROM `jingdong-505914.wms_data.fact_backlog`").to_dataframe()
+        except Exception as e:
+            return {"status": "error", "message": f"Không thể đọc BigQuery fact_backlog: {e}"}
 
     if df_backlog is None or df_backlog.empty:
         return {"status": "empty", "message": "Dữ liệu Backlog trống."}
 
     cfg = get_zalo_config()
-    urgent_hours = custom_urgent_hours if custom_urgent_hours is not None else cfg.get("urgent_hours", 1.0)
+    chat_id = target_chat_id or cfg.get("chat_id")
+    if not chat_id:
+        return {"status": "not_configured", "message": "Chưa cấu hình chat_id nhóm Zalo."}
+
+    urgent_hours = custom_urgent_hours if custom_urgent_hours is not None else cfg.get("urgent_hours", 2.5)
     cooldown_sec = cfg.get("cooldown_minutes", 30.0) * 60
 
-    # Chuẩn bị thời gian
     now_vn = datetime.datetime.now(VN_TZ).replace(tzinfo=None)
     today_vn = now_vn.date()
-    urgent_time = now_vn + timedelta(hours=urgent_hours)
 
     # Chuẩn hóa cột prod_dt
     df = df_backlog.copy()
@@ -719,37 +703,15 @@ def scan_and_alert_backlog_sla(df_backlog: pd.DataFrame, force_send: bool = Fals
     df_today = df[df['prod_dt'].dt.date == today_vn].copy()
     if df_today.empty:
         if notify_if_safe:
-            time_str = now_vn.strftime("%H:%M:%S %d/%m/%Y")
-            safe_text = (
-                f"[CẬP NHẬT BACKLOG - KHO JDL]\n"
-                f"Thời gian: {time_str}\n"
-                f"Tổng đơn tồn hôm nay: 0 đơn\n"
-                f"Tất cả đơn đều đã được giải phóng."
-            )
-            send_zalo_message(safe_text)
+            msg = f"[DANH SÁCH ĐƠN HÀNG SẮP QUÁ HẠN SLA]\nThời gian: {now_vn.strftime('%H:%M:%S %d/%m/%Y')}\nKhông có đơn nào tồn đọng trong ngày hôm nay ({today_vn})."
+            send_zalo_message(msg, target_chat_id=chat_id)
         return {"status": "no_today_orders", "message": f"Không có đơn nào có hạn hôm nay ({today_vn})."}
 
-    # Phân loại: Đã trễ vs Cận hạn
-    df_overdue = df_today[df_today['prod_dt'] < now_vn]
-    df_urgent = df_today[(df_today['prod_dt'] >= now_vn) & (df_today['prod_dt'] <= urgent_time)]
+    df_today['diff_sec'] = (df_today['prod_dt'] - now_vn).dt.total_seconds()
+    df_risk = df_today[df_today['diff_sec'] <= urgent_hours * 3600].copy()
+    total_risk = len(df_risk)
 
-    total_risk = len(df_overdue) + len(df_urgent)
-    if total_risk == 0:
-        if notify_if_safe:
-            time_str = now_vn.strftime("%H:%M:%S %d/%m/%Y")
-            safe_text = (
-                f"[CẬP NHẬT BACKLOG - KHO JDL]\n"
-                f"Thời gian: {time_str}\n"
-                f"Tổng đơn tồn hôm nay: {len(df_today):,} đơn\n"
-                f"Tình trạng SLA: Tất cả đơn đều đang an toàn (> {urgent_hours:g} tiếng nữa mới đến hạn)."
-            )
-            send_zalo_message(safe_text)
-            return {
-                "status": "sent",
-                "message": f"Đã gửi thông báo Backlog an toàn ({len(df_today):,} đơn) vào nhóm Zalo thành công!",
-                "count": 0
-            }
-
+    if total_risk == 0 and not notify_if_safe:
         return {
             "status": "safe",
             "message": f"Tất cả các đơn hôm nay đều an toàn (> {urgent_hours:g}h nữa mới đến hạn).",
@@ -757,12 +719,11 @@ def scan_and_alert_backlog_sla(df_backlog: pd.DataFrame, force_send: bool = Fals
         }
 
     # Tạo chữ ký dữ liệu để chống spam tin trùng lặp
-    all_risk_ids = sorted(df_overdue['order_no'].astype(str).tolist() + df_urgent['order_no'].astype(str).tolist())
-    sig_str = f"{today_vn}_{len(df_overdue)}_{len(df_urgent)}_" + "_".join(all_risk_ids[:50])
+    all_risk_ids = sorted(df_risk['order_no'].astype(str).tolist())
+    sig_str = f"{today_vn}_{total_risk}_" + "_".join(all_risk_ids[:50])
     current_sig = hashlib.md5(sig_str.encode('utf-8')).hexdigest()
-
     now_ts = time.time()
-    # Kiểm tra chống spam nếu không ép buộc gửi
+
     if not force_send:
         if current_sig == _LAST_ALERT_STATE["signature"]:
             if (now_ts - _LAST_ALERT_STATE["timestamp"]) < cooldown_sec:
@@ -772,34 +733,37 @@ def scan_and_alert_backlog_sla(df_backlog: pd.DataFrame, force_send: bool = Fals
                     "count": total_risk
                 }
 
-    # Soạn tin nhắn
-    message_text = format_sla_alert_message(df_urgent, df_overdue, now_vn, urgent_hours)
+    # Định dạng tin nhắn chi tiết (giống hệt khi chat /backlog)
+    messages = format_detailed_backlog_list(df, now_vn=now_vn, max_hours=urgent_hours)
 
-    # Nếu chưa cấu hình Zalo
-    if not is_zalo_configured():
-        return {
-            "status": "not_configured",
-            "message": "Chưa cấu hình Zalo Bot (Webhook URL hoặc Token). Nội dung tin nhắn đã sẵn sàng.",
-            "count": total_risk,
-            "preview_message": message_text
-        }
+    all_ok = True
+    last_err = ""
+    for msg in messages:
+        if cfg.get("bot_token") and chat_id:
+            url = f"https://bot-api.zaloplatforms.com/bot{cfg['bot_token']}/sendMessage"
+            res = requests.post(url, json={"chat_id": chat_id, "text": msg}, headers={"Content-Type": "application/json"}, timeout=15)
+            if res.status_code != 200:
+                all_ok = False
+                last_err = f"Lỗi Zalo API [{res.status_code}]: {res.text}"
+        else:
+            ok, err = send_zalo_message(msg, target_chat_id=chat_id)
+            if not ok:
+                all_ok = False
+                last_err = err
+        time.sleep(0.5)
 
-    # Thực hiện gửi tin
-    success, msg = send_zalo_message(message_text)
-    if success:
+    if all_ok:
         _LAST_ALERT_STATE["signature"] = current_sig
         _LAST_ALERT_STATE["timestamp"] = now_ts
         _LAST_ALERT_STATE["last_count"] = total_risk
         return {
             "status": "sent",
-            "message": f"Đã gửi cảnh báo {total_risk} đơn vào nhóm Zalo thành công!",
-            "count": total_risk,
-            "preview_message": message_text
+            "message": f"Đã gửi báo cáo chi tiết Backlog ({total_risk} đơn sắp trễ) vào nhóm Zalo thành công!",
+            "count": total_risk
         }
     else:
         return {
             "status": "error",
-            "message": f"Không thể gửi tin Zalo: {msg}",
-            "count": total_risk,
-            "preview_message": message_text
+            "message": f"Không thể gửi tin Zalo: {last_err}",
+            "count": total_risk
         }
