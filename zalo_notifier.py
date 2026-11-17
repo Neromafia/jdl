@@ -686,11 +686,12 @@ def handle_packing_command(target_chat_id: str = None) -> tuple[bool, str]:
     return False, res.get("message")
 
 
-def scan_and_alert_backlog_sla(df_backlog: pd.DataFrame, force_send: bool = False, custom_urgent_hours: float = None) -> dict:
+def scan_and_alert_backlog_sla(df_backlog: pd.DataFrame, force_send: bool = False, custom_urgent_hours: float = None, notify_if_safe: bool = False) -> dict:
     """
     Quét dữ liệu backlog và gửi cảnh báo vào nhóm Zalo nếu có đơn cận hạn hoặc đã trễ.
     - custom_urgent_hours: số giờ cận hạn (mặc định đọc từ config, thường là 1.0 tiếng).
-    - force_send: bỏ qua cơ chế chống spam (dùng khi người dùng bấm nút test/bắn tin thủ công).
+    - force_send: bỏ qua cơ chế chống spam (dùng khi người dùng bấm nút test/bắn tin thủ công hoặc vừa nạp file mới).
+    - notify_if_safe: nếu True và không có đơn trễ (0 đơn rủi ro), vẫn gửi tin xác nhận an toàn vào nhóm.
     """
     global _LAST_ALERT_STATE
 
@@ -717,6 +718,15 @@ def scan_and_alert_backlog_sla(df_backlog: pd.DataFrame, force_send: bool = Fals
     # Lọc đơn có hạn hôm nay
     df_today = df[df['prod_dt'].dt.date == today_vn].copy()
     if df_today.empty:
+        if notify_if_safe:
+            time_str = now_vn.strftime("%H:%M:%S %d/%m/%Y")
+            safe_text = (
+                f"[CẬP NHẬT BACKLOG - KHO JDL]\n"
+                f"Thời gian: {time_str}\n"
+                f"Tổng đơn tồn hôm nay: 0 đơn\n"
+                f"Tất cả đơn đều đã được giải phóng."
+            )
+            send_zalo_message(safe_text)
         return {"status": "no_today_orders", "message": f"Không có đơn nào có hạn hôm nay ({today_vn})."}
 
     # Phân loại: Đã trễ vs Cận hạn
@@ -725,6 +735,21 @@ def scan_and_alert_backlog_sla(df_backlog: pd.DataFrame, force_send: bool = Fals
 
     total_risk = len(df_overdue) + len(df_urgent)
     if total_risk == 0:
+        if notify_if_safe:
+            time_str = now_vn.strftime("%H:%M:%S %d/%m/%Y")
+            safe_text = (
+                f"[CẬP NHẬT BACKLOG - KHO JDL]\n"
+                f"Thời gian: {time_str}\n"
+                f"Tổng đơn tồn hôm nay: {len(df_today):,} đơn\n"
+                f"Tình trạng SLA: Tất cả đơn đều đang an toàn (> {urgent_hours:g} tiếng nữa mới đến hạn)."
+            )
+            send_zalo_message(safe_text)
+            return {
+                "status": "sent",
+                "message": f"Đã gửi thông báo Backlog an toàn ({len(df_today):,} đơn) vào nhóm Zalo thành công!",
+                "count": 0
+            }
+
         return {
             "status": "safe",
             "message": f"Tất cả các đơn hôm nay đều an toàn (> {urgent_hours:g}h nữa mới đến hạn).",

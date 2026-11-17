@@ -528,7 +528,7 @@ def sync_folder(cfg, drive_svc, bq_client, processed_map, is_full_sync, dry_run,
                 # Tự động quét và bắn tin nhắn cảnh báo đơn cận hạn/trễ hạn vào Nhóm Chat Zalo
                 try:
                     import zalo_notifier
-                    z_res = zalo_notifier.scan_and_alert_backlog_sla(df, force_send=False)
+                    z_res = zalo_notifier.scan_and_alert_backlog_sla(df, force_send=True, notify_if_safe=True)
                     if z_res.get("status") == "sent":
                         print(f"  📢 Zalo Bot: {z_res.get('message')}")
                     elif z_res.get("status") == "error":
@@ -542,7 +542,7 @@ def sync_folder(cfg, drive_svc, bq_client, processed_map, is_full_sync, dry_run,
                 if active_cfg["folder_name"] == "PACKING":
                     try:
                         import zalo_notifier
-                        z_res = zalo_notifier.scan_and_alert_packing_progress(force_send=False)
+                        z_res = zalo_notifier.scan_and_alert_packing_progress(force_send=True)
                         if z_res.get("status") == "sent":
                             print(f"  📢 Zalo Bot: {z_res.get('message')}")
                         elif z_res.get("status") == "error":
@@ -606,7 +606,7 @@ def main():
     parser.add_argument("--folder",   type=str, default=None, help="Chỉ sync 1 folder")
     parser.add_argument("--dry-run",  action="store_true", help="Dry run test file")
     parser.add_argument("--daemon",   action="store_true", help="Chạy nền liên tục định kỳ")
-    parser.add_argument("--interval", type=int, default=300, help="Thời gian delay giữa các lần quét (giây), mặc định 300s = 5p")
+    parser.add_argument("--interval", type=int, default=60, help="Thời gian delay giữa các lần quét (giây), mặc định 60s")
     args = parser.parse_args()
 
     creds     = get_credentials()
