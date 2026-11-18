@@ -1784,3 +1784,363 @@ def scan_and_alert_warehouse_sla(target_chat_id: str = None, dry_run: bool = Fal
             "message": f"Đã gửi cảnh báo SLA kho ({len(messages)} tin | Trễ: {stats['total_overdue']}, <=2h: {stats['total_urgent']}, Hạn hôm nay: {stats['total_today']}) vào Zalo.",
         }
     return {"status": "error", "message": f"Không thể gửi tin Zalo SLA kho: {last_err}"}
+
+
+# ==============================================================================
+# TRA CỨU GIỜ CÔNG & OT NHÂN SỰ THEO LỆNH (@bot OT ...)
+# Quy tắc:
+#   - Định danh: user_code (cột A), ngày: attendance_date (cột B),
+#     nhóm: attendance_group (cột M), lỗi: exception_type (cột N),
+#     giờ công: final_actual_hours (cột AG).
+#   - OT = max(final_actual_hours - 8.0, 0.0) mỗi người/ngày.
+#   - 3 lỗi nghiêm trọng hiển thị chi tiết user_code | attendance_group:
+#     1) Vắng ngày không có lịch (Absence on Non-scheduled Day)
+#     2) Có mặt ngày không có lịch (Attendance on Non-scheduled Day)
+#     3) Có mặt ngày nghỉ (Attendance on Rest Day)
+# ==============================================================================
+
+def _classify_serious_ot_exception(exc_type: str) -> str | None:
+    """Phân loại 3 lỗi chấm công nghiêm trọng cần hiển thị chi tiết user_code - group."""
+    low = str(exc_type or "").strip().lower()
+    if not low or low == "normal":
+        return None
+    if ("absence" in low and ("non-scheduled" in low or "non scheduled" in low or "unscheduled" in low)) or "vắng ngày không có lịch" in low:
+        return "Vắng ngày không có lịch"
+    if ("attendance" in low and ("non-scheduled" in low or "non scheduled" in low or "unscheduled" in low)) or "có mặt ngày không có lịch" in low:
+        return "Có mặt ngày không có lịch"
+    if ("attendance" in low and ("rest day" in low or "day off" in low or "off day" in low)) or "có mặt ngày nghỉ" in low:
+        return "Có mặt ngày nghỉ"
+    return None
+
+
+def parse_ot_query(raw_text: str, now_vn: datetime.datetime = None) -> dict | None:
+    """
+    Nhận diện câu lệnh/câu hỏi tự nhiên về OT & giờ công nhân sự, ví dụ:
+      - '@bot OT ngày 17/11'
+      - '@bot OT từ ngày 1/11 đến 17/11'
+      - '@bot OT tháng 11'
+      - '@bot OT hôm qua' / '@bot OT tuần trước' / '@bot OT'
+    Trả về dict {start_date, end_date, label, is_latest} hoặc None nếu không phải lệnh OT.
+    """
+    import calendar
+
+    if not raw_text or not raw_text.strip():
+        return None
+
+    if now_vn is None:
+        now_vn = datetime.datetime.now(VN_TZ).replace(tzinfo=None)
+    today = now_vn.date()
+
+    # Bỏ các tag @bot / @jingdong / @jdl trước khi kiểm tra từ khóa OT để không bắt nhầm
+    cleaned = re.sub(r'@\S+', ' ', raw_text).strip()
+    text_lower = re.sub(r'\s+', ' ', cleaned.lower()).strip()
+    if not text_lower:
+        return None
+
+    # Chỉ kích hoạt khi có từ đứng riêng 'ot' / '/ot' hoặc 'tăng ca' / 'giờ công'
+    has_ot_kw = bool(
+        re.search(r'(?:^|\s)/?ot(?:\s|$|[,.:;?!])', text_lower)
+        or any(k in text_lower for k in ["tăng ca", "tang ca", "giờ công", "gio cong"])
+    )
+    if not has_ot_kw:
+        return None
+
+    def _norm_year(y_str):
+        if not y_str:
+            return today.year
+        yv = int(y_str)
+        return (2000 + yv) if yv < 100 else yv
+
+    # 1. Khoảng ngày: "từ (ngày) D1/M1(/Y1) đến (ngày) D2/M2(/Y2)" hoặc "D1/M1 - D2/M2"
+    m_range = re.search(
+        r'(?:từ|tu)?\s*(?:ng[àa]y\s*)?(\d{1,2})[/.-](\d{1,2})(?:[/.-](\d{2,4}))?\s*'
+        r'(?:đến|den|tới|toi|->|–|-|~)\s*'
+        r'(?:ng[àa]y\s*)?(\d{1,2})[/.-](\d{1,2})(?:[/.-](\d{2,4}))?',
+        text_lower,
+    )
+    if m_range:
+        d1, m1, y1, d2, m2, y2 = m_range.groups()
+        try:
+            yy2 = _norm_year(y2)
+            yy1 = _norm_year(y1) if y1 else yy2
+            sd = datetime.date(yy1, int(m1), int(d1))
+            ed = datetime.date(yy2, int(m2), int(d2))
+            if sd > ed:
+                sd, ed = ed, sd
+            lbl = f"{sd.strftime('%d/%m/%Y')} - {ed.strftime('%d/%m/%Y')}"
+            return {"start_date": sd, "end_date": ed, "label": lbl, "is_latest": False}
+        except ValueError:
+            pass
+
+    # 2. Khoảng ngày cùng tháng: "từ ngày 1 đến ngày 17 tháng 11"
+    m_range_m = re.search(
+        r'(?:từ|tu)\s*(?:ng[àa]y\s*)?(\d{1,2})\s*'
+        r'(?:đến|den|tới|toi|-|–)\s*'
+        r'(?:ng[àa]y\s*)?(\d{1,2})\s*'
+        r'th[áa]ng\s*(\d{1,2})(?:\s*(?:/|-|n[ăa]m\s*)(\d{2,4}))?',
+        text_lower,
+    )
+    if m_range_m:
+        d1, d2, mm, yy = m_range_m.groups()
+        try:
+            y_val = _norm_year(yy)
+            sd = datetime.date(y_val, int(mm), int(d1))
+            ed = datetime.date(y_val, int(mm), int(d2))
+            if sd > ed:
+                sd, ed = ed, sd
+            lbl = f"{sd.strftime('%d/%m/%Y')} - {ed.strftime('%d/%m/%Y')}"
+            return {"start_date": sd, "end_date": ed, "label": lbl, "is_latest": False}
+        except ValueError:
+            pass
+
+    # 3. Cả tháng: "tháng 11", "tháng 11/2026", "tháng này", "tháng trước"
+    m_month = re.search(r'th[áa]ng\s*(\d{1,2})(?:\s*(?:/|-|n[ăa]m\s*)(\d{2,4}))?', text_lower)
+    if m_month:
+        mm = int(m_month.group(1))
+        yy = _norm_year(m_month.group(2))
+        if 1 <= mm <= 12:
+            last_d = calendar.monthrange(yy, mm)[1]
+            sd = datetime.date(yy, mm, 1)
+            ed = datetime.date(yy, mm, last_d)
+            return {"start_date": sd, "end_date": ed, "label": f"Tháng {mm:02d}/{yy}", "is_latest": False}
+
+    if "tháng này" in text_lower or "thang nay" in text_lower:
+        last_d = calendar.monthrange(today.year, today.month)[1]
+        sd = datetime.date(today.year, today.month, 1)
+        ed = datetime.date(today.year, today.month, last_d)
+        return {"start_date": sd, "end_date": ed, "label": f"Tháng {today.month:02d}/{today.year}", "is_latest": False}
+
+    if "tháng trước" in text_lower or "thang truoc" in text_lower:
+        first_this = today.replace(day=1)
+        prev_last = first_this - timedelta(days=1)
+        sd = prev_last.replace(day=1)
+        ed = prev_last
+        return {"start_date": sd, "end_date": ed, "label": f"Tháng {sd.month:02d}/{sd.year}", "is_latest": False}
+
+    # 4. Tuần này / tuần trước
+    if "tuần này" in text_lower or "tuan nay" in text_lower:
+        sd = today - timedelta(days=today.weekday())
+        ed = today
+        return {"start_date": sd, "end_date": ed, "label": f"Tuần này ({sd.strftime('%d/%m')} - {ed.strftime('%d/%m/%Y')})", "is_latest": False}
+
+    if "tuần trước" in text_lower or "tuan truoc" in text_lower:
+        this_mon = today - timedelta(days=today.weekday())
+        sd = this_mon - timedelta(days=7)
+        ed = this_mon - timedelta(days=1)
+        return {"start_date": sd, "end_date": ed, "label": f"Tuần trước ({sd.strftime('%d/%m')} - {ed.strftime('%d/%m/%Y')})", "is_latest": False}
+
+    # 5. Ngày đơn lẻ
+    if "hôm nay" in text_lower or "hom nay" in text_lower:
+        return {"start_date": today, "end_date": today, "label": today.strftime("%d/%m/%Y"), "is_latest": False}
+    if "hôm qua" in text_lower or "hom qua" in text_lower:
+        d = today - timedelta(days=1)
+        return {"start_date": d, "end_date": d, "label": d.strftime("%d/%m/%Y"), "is_latest": False}
+    if "hôm kia" in text_lower or "hom kia" in text_lower:
+        d = today - timedelta(days=2)
+        return {"start_date": d, "end_date": d, "label": d.strftime("%d/%m/%Y"), "is_latest": False}
+
+    m_single = re.search(r'(\d{1,2})[/.-](\d{1,2})(?:[/.-](\d{2,4}))?', text_lower)
+    if m_single:
+        d, m_val, y_val = m_single.groups()
+        try:
+            dt = datetime.date(_norm_year(y_val), int(m_val), int(d))
+            return {"start_date": dt, "end_date": dt, "label": dt.strftime("%d/%m/%Y"), "is_latest": False}
+        except ValueError:
+            pass
+
+    m_day_only = re.search(r'ng[àa]y\s*(\d{1,2})\b', text_lower)
+    if m_day_only:
+        try:
+            dt = datetime.date(today.year, today.month, int(m_day_only.group(1)))
+            return {"start_date": dt, "end_date": dt, "label": dt.strftime("%d/%m/%Y"), "is_latest": False}
+        except ValueError:
+            pass
+
+    # 6. Chỉ gõ "@bot OT" -> tự động lấy ngày mới nhất có trong bảng fact_work_hours
+    return {"start_date": None, "end_date": None, "label": "Ngày mới nhất", "is_latest": True}
+
+
+def format_ot_report(df: pd.DataFrame, period_label: str, is_single_day: bool = True) -> list[str]:
+    """
+    Tạo báo cáo giờ công & OT gửi Zalo theo đúng quy tắc:
+      - Dùng user_code (cột A), attendance_date (cột B), attendance_group (cột M),
+        exception_type (cột N), final_actual_hours (cột AG).
+      - Giờ chuẩn = 8.0h/ngày -> OT = max(final_actual_hours - 8.0, 0.0).
+      - Hiển thị chi tiết user_code | group cho đúng 3 lỗi nghiêm trọng.
+    """
+    header = "[BÁO CÁO GIỜ CÔNG & OT - KHO JDL]"
+    if df is None or df.empty:
+        return [f"{header}\nKỳ báo cáo: {period_label}\n\nChưa có dữ liệu giờ công cho khoảng thời gian này."]
+
+    work = df.copy()
+    work["user_code"] = work["user_code"].fillna("").astype(str).str.strip()
+    work["attendance_group"] = (
+        work["attendance_group"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .replace({"": "Không rõ nhóm", "nan": "Không rõ nhóm", "None": "Không rõ nhóm"})
+    )
+    work["exception_type"] = work["exception_type"].fillna("").astype(str).str.strip()
+    work["final_actual_hours"] = pd.to_numeric(work["final_actual_hours"], errors="coerce").fillna(0.0)
+    work["ot_hours"] = (work["final_actual_hours"] - 8.0).clip(lower=0.0)
+    work["_dt"] = pd.to_datetime(work["attendance_date"], errors="coerce")
+
+    n_days = int(work["_dt"].dt.date.nunique())
+    single_view = is_single_day and (n_days <= 1)
+
+    total_records = len(work)
+    worked_df = work[work["final_actual_hours"] > 0]
+    ot_df = work[work["ot_hours"] > 0]
+
+    total_hours = float(work["final_actual_hours"].sum())
+    total_ot = float(work["ot_hours"].sum())
+    ot_pct = (total_ot / total_hours * 100.0) if total_hours > 0 else 0.0
+
+    period_line = f"Kỳ báo cáo: {period_label}" if single_view else f"Kỳ báo cáo: {period_label} ({n_days} ngày có dữ liệu)"
+    lines = [
+        header,
+        period_line,
+        "",
+        "1. TỔNG QUAN",
+    ]
+    if single_view:
+        lines.append(f"- Nhân sự: {total_records:,} người (đi làm: {len(worked_df):,} | có OT: {len(ot_df):,})")
+    else:
+        uniq_users = int(worked_df["user_code"].nunique())
+        lines.append(f"- Lượt đi làm: {len(worked_df):,} lượt ({uniq_users:,} người) | Lượt có OT: {len(ot_df):,}")
+    lines.append(f"- Tổng giờ công (cột AG): {total_hours:,.2f}h")
+    lines.append(f"- Tổng giờ OT (>8h/ngày): {total_ot:,.2f}h ({ot_pct:.1f}%)")
+
+    # 2. Tổng hợp theo Attendance Group (cột M)
+    lines.append("")
+    lines.append("2. CHI TIẾT THEO ATTENDANCE GROUP")
+    if worked_df.empty:
+        lines.append("- Không có nhân sự phát sinh giờ công.")
+    else:
+        grp_df = (
+            worked_df.groupby("attendance_group", as_index=False)
+            .agg(
+                work_cnt=("user_code", "count"),
+                ot_cnt=("ot_hours", lambda s: int((s > 0).sum())),
+                total_hours=("final_actual_hours", "sum"),
+                total_ot=("ot_hours", "sum"),
+            )
+            .sort_values(by=["total_ot", "total_hours"], ascending=[False, False])
+        )
+        unit = "người" if single_view else "lượt"
+        for _, r in grp_df.iterrows():
+            lines.append(
+                f"- {r['attendance_group']}: {r['total_ot']:.2f}h OT | {r['total_hours']:.2f}h công "
+                f"({int(r['ot_cnt'])}/{int(r['work_cnt'])} {unit} OT)"
+            )
+
+    # 3. 3 Lỗi nghiêm trọng (cột N) -> hiển thị chi tiết user_code | group
+    work["serious_cat"] = work["exception_type"].apply(_classify_serious_ot_exception)
+    ser_df = work[work["serious_cat"].notna()].copy()
+
+    lines.append("")
+    if ser_df.empty:
+        lines.append("3. LỖI NGHIÊM TRỌNG: Không có (0 lượt).")
+    else:
+        lines.append(f"3. LỖI NGHIÊM TRỌNG ({len(ser_df):,} lượt)")
+        cat_order = [
+            "Vắng ngày không có lịch",
+            "Có mặt ngày không có lịch",
+            "Có mặt ngày nghỉ",
+        ]
+        for cat in cat_order:
+            sub = ser_df[ser_df["serious_cat"] == cat].sort_values(
+                by=["_dt", "attendance_group", "user_code"], ascending=[True, True, True]
+            )
+            if sub.empty:
+                continue
+            lines.append(f"• {cat} ({len(sub):,}):")
+            for _, r in sub.iterrows():
+                if single_view:
+                    lines.append(f"  - {r['user_code']} | {r['attendance_group']}")
+                else:
+                    d_str = r["_dt"].strftime("%d/%m") if pd.notna(r["_dt"]) else ""
+                    lines.append(f"  - {d_str} | {r['user_code']} | {r['attendance_group']}")
+
+    return _split_zalo_lines(lines, header_prefix=header, max_chars=1800)
+
+
+def query_ot_report(params: dict) -> list[str]:
+    """Truy vấn BigQuery `fact_work_hours` theo khoảng ngày và trả về danh sách tin nhắn Zalo."""
+    client = get_bigquery_client()
+
+    start_date = params.get("start_date")
+    end_date = params.get("end_date")
+    label = params.get("label") or ""
+
+    if params.get("is_latest") or start_date is None:
+        df_max = client.query(
+            "SELECT MAX(attendance_date) AS max_d FROM `jingdong-505914.wms_data.fact_work_hours`"
+        ).to_dataframe()
+        if df_max.empty or pd.isna(df_max["max_d"].iloc[0]):
+            return ["[BÁO CÁO GIỜ CÔNG & OT - KHO JDL]\n\nChưa có dữ liệu giờ công nào trong hệ thống."]
+        latest_d = pd.to_datetime(df_max["max_d"].iloc[0]).date()
+        start_date = latest_d
+        end_date = latest_d
+        label = latest_d.strftime("%d/%m/%Y")
+
+    sql = f"""
+    SELECT
+        user_code,
+        attendance_date,
+        attendance_group,
+        exception_type,
+        final_actual_hours,
+        ot_hours
+    FROM `jingdong-505914.wms_data.fact_work_hours`
+    WHERE attendance_date >= DATE '{start_date.strftime('%Y-%m-%d')}'
+      AND attendance_date <= DATE '{end_date.strftime('%Y-%m-%d')}'
+    """
+    df = client.query(sql).to_dataframe()
+    return format_ot_report(df, period_label=label, is_single_day=(start_date == end_date))
+
+
+def handle_ot_query(raw_text: str, target_chat_id: str = None, dry_run: bool = False) -> tuple[bool, str | list[str]]:
+    """Xử lý câu lệnh tra cứu OT & giờ công nhân sự từ Zalo Bot."""
+    params = parse_ot_query(raw_text)
+    if not params:
+        return False, "Không nhận diện được yêu cầu tra cứu OT."
+
+    try:
+        messages = query_ot_report(params)
+    except Exception as e:
+        return False, f"Lỗi truy vấn BigQuery giờ công/OT: {e}"
+
+    if dry_run:
+        return True, messages
+
+    cfg = get_zalo_config()
+    chat_id = target_chat_id or cfg.get("chat_id")
+    if not chat_id:
+        return False, "Chưa xác định được chat_id nhóm Zalo."
+
+    all_ok = True
+    last_err = ""
+    for msg in messages:
+        if cfg.get("bot_token") and chat_id:
+            url = f"https://bot-api.zaloplatforms.com/bot{cfg['bot_token']}/sendMessage"
+            res = requests.post(
+                url,
+                json={"chat_id": chat_id, "text": msg},
+                headers={"Content-Type": "application/json"},
+                timeout=15,
+            )
+            if res.status_code != 200:
+                all_ok = False
+                last_err = f"Lỗi Zalo API [{res.status_code}]: {res.text}"
+        else:
+            ok, err = send_zalo_message(msg, target_chat_id=chat_id)
+            if not ok:
+                all_ok = False
+                last_err = err
+        time.sleep(0.4)
+
+    if all_ok:
+        return True, f"Đã gửi báo cáo giờ công & OT ({len(messages)} tin) vào Zalo thành công."
+    return False, f"Không thể gửi tin Zalo báo cáo OT: {last_err}"

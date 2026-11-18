@@ -987,6 +987,291 @@ def sync_check_qua_han_folder(
     return synced, skipped
 
 
+# ══════════════════════════════════════════════════════════════
+# OT / GIỜ CÔNG NHÂN SỰ (FOLDER: OT)
+# Hỗ trợ file nhiều ngày, header 2 dòng, gộp 1 dòng/người/ngày, MERGE BigQuery
+# Không tự động bắn Zalo khi nạp — chỉ trả lời theo lệnh @bot OT ...
+# ══════════════════════════════════════════════════════════════
+OT_FOLDER_ID = "1CmJmFzmX_XgXgaj_3CXfOrlPpDedg-qE"
+OT_FOLDER_NAME = "OT"
+
+OT_COLUMN_MAPPING = {
+    "User Code": "user_code",
+    "Attendance Date": "attendance_date",
+    "ERP": "erp",
+    "Name": "worker_name",
+    "Employment Nature": "employment_nature",
+    "Position Name": "position_name",
+    "Primary Supplier": "primary_supplier",
+    "Attendance Group": "attendance_group",
+    "Exception Type": "exception_type",
+    "Exception Duration (Minutes)": "exception_duration_min",
+    "Scheduled Total Duration (Hours)": "scheduled_hours",
+    "Attendance Duration Hours": "attendance_duration_hours",
+    "Actual Duration Hours": "actual_duration_hours",
+    "Base Work Hours": "base_work_hours",
+    "Overtime Hours": "overtime_hours_raw",
+    "Final Actual Duration Hours": "final_actual_hours",
+    "Last Update Time": "last_update_time",
+}
+
+
+def parse_ot_work_hours_df(df_raw: pd.DataFrame) -> pd.DataFrame:
+    """
+    Chuẩn hóa file giờ công JD HR (Excel hoặc CSV):
+      - Tự động nhận diện & xử lý header 2 dòng (Attendance Details / Work Hours Details).
+      - Ánh xạ các cột chuẩn: User Code (A), Attendance Date (B), Attendance Group (M),
+        Exception Type (N), Final Actual Duration Hours (AG),...
+      - Khử trùng các dòng chi tiết con (UTO1 / OT1) về đúng 1 dòng/người/ngày theo
+        (user_code, attendance_date), ưu tiên dòng chính có final_actual_hours cao nhất.
+      - Tính ot_hours = max(final_actual_hours - 8.0, 0.0).
+    """
+    if df_raw is None or df_raw.empty:
+        return pd.DataFrame()
+
+    df = df_raw.copy()
+    df.columns = [str(c).strip() for c in df.columns]
+
+    # Xử lý header 2 dòng: dòng đầu tiên lặp lại "User Code" hoặc chứa "Work Shift Type"
+    if len(df) > 0:
+        first_row_vals = [str(v).strip() if pd.notna(v) else "" for v in df.iloc[0].tolist()]
+        first_row_low = {v.lower() for v in first_row_vals if v}
+        if (first_row_vals and first_row_vals[0].lower() == "user code") or ("work shift type" in first_row_low):
+            new_cols = []
+            for orig_c, sub_c in zip(df.columns, first_row_vals):
+                new_cols.append(sub_c if sub_c else orig_c)
+            df.columns = new_cols
+            df = df.iloc[1:].reset_index(drop=True)
+
+    norm_map = {_norm_col_key(k): v for k, v in OT_COLUMN_MAPPING.items()}
+    rename_dict = {}
+    used_targets = set()
+    for col in df.columns:
+        nk = _norm_col_key(col)
+        if nk in norm_map and norm_map[nk] not in used_targets:
+            rename_dict[col] = norm_map[nk]
+            used_targets.add(norm_map[nk])
+
+    df = df.rename(columns=rename_dict)
+    if "user_code" not in df.columns or "attendance_date" not in df.columns:
+        return pd.DataFrame()
+
+    keep_cols = [c for c in OT_COLUMN_MAPPING.values() if c in df.columns]
+    df = df[keep_cols].copy()
+
+    # Làm sạch khóa chính
+    df["user_code"] = df["user_code"].astype(str).str.strip()
+    df = df[df["user_code"].notna() & (df["user_code"] != "") & (df["user_code"].str.lower() != "nan") & (df["user_code"].str.lower() != "user code")]
+
+    parsed_date = pd.to_datetime(df["attendance_date"], errors="coerce")
+    df = df[parsed_date.notna()].copy()
+    df["attendance_date"] = parsed_date[parsed_date.notna()].dt.strftime("%Y-%m-%d")
+
+    if df.empty:
+        return df
+
+    # Chuẩn hóa cột chuỗi
+    for str_col in ["erp", "worker_name", "employment_nature", "position_name", "primary_supplier", "attendance_group", "exception_type"]:
+        if str_col in df.columns:
+            df[str_col] = (
+                df[str_col]
+                .where(df[str_col].notna(), "")
+                .astype(str)
+                .str.strip()
+                .replace({"nan": "", "None": "", "<NA>": ""})
+            )
+
+    # Chuẩn hóa cột số
+    float_cols = [
+        "exception_duration_min",
+        "scheduled_hours",
+        "attendance_duration_hours",
+        "actual_duration_hours",
+        "base_work_hours",
+        "overtime_hours_raw",
+        "final_actual_hours",
+    ]
+    for fc in float_cols:
+        if fc in df.columns:
+            df[fc] = pd.to_numeric(df[fc], errors="coerce").fillna(0.0).astype(float)
+        else:
+            df[fc] = 0.0
+
+    # Chuẩn hóa last_update_time
+    if "last_update_time" in df.columns:
+        parsed_ut = pd.to_datetime(df["last_update_time"], errors="coerce")
+        df["last_update_time"] = parsed_ut.dt.strftime("%Y-%m-%d %H:%M:%S").where(parsed_ut.notna(), None)
+    else:
+        df["last_update_time"] = None
+
+    # Gom về đúng 1 dòng duy nhất cho mỗi (user_code, attendance_date):
+    # Dòng chính của JD HR chứa tổng final_actual_hours & scheduled_hours; dòng con (UTO1/OT1) có giá trị = 0.
+    df = df.sort_values(
+        by=["final_actual_hours", "scheduled_hours", "actual_duration_hours"],
+        ascending=[False, False, False],
+    ).drop_duplicates(subset=["user_code", "attendance_date"], keep="first").reset_index(drop=True)
+
+    # Quy tắc OT: giờ công mặc định 8.0h -> phần dư > 8.0h là OT; <= 8.0h thì OT = 0
+    df["ot_hours"] = (df["final_actual_hours"] - 8.0).clip(lower=0.0).round(2)
+    df["final_actual_hours"] = df["final_actual_hours"].round(2)
+
+    return df
+
+
+def sync_ot_folder(
+    drive_svc,
+    bq_client,
+    processed_map: dict,
+    is_full_sync: bool = False,
+    dry_run: bool = False,
+    only_folder: str = None,
+) -> tuple[int, int]:
+    """
+    Quét thư mục OT trên Google Drive, nạp dữ liệu giờ công (nhiều ngày) vào BigQuery
+    `fact_work_hours` theo chế độ MERGE trên khóa (user_code, attendance_date).
+    Không tự động gửi tin Zalo.
+    """
+    if only_folder and only_folder.upper() not in ("OT", "WORK_HOURS", "GIO_CONG"):
+        return 0, 0
+
+    print("\n📂 OT (Giờ công nhân sự)", flush=True)
+
+    all_files = []
+    for attempt in range(2):
+        try:
+            results = drive_svc.files().list(
+                q=f"'{OT_FOLDER_ID}' in parents and trashed=false",
+                fields="files(id,name,modifiedTime)",
+                orderBy="modifiedTime asc",
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
+                pageSize=200,
+            ).execute()
+            all_files = [
+                f for f in results.get("files", [])
+                if f["name"].lower().endswith((".xlsx", ".xls", ".csv"))
+            ]
+            break
+        except Exception as e:
+            if attempt == 0:
+                time.sleep(2)
+                continue
+            print(f"  ❌ Lỗi liệt kê file OT: {e}")
+            return 0, 0
+
+    if not all_files:
+        return 0, 0
+
+    synced, skipped = 0, 0
+    fact_ref = f"{PROJECT_ID}.{DATASET_ID}.fact_work_hours"
+    stg_ref = f"{PROJECT_ID}.{DATASET_ID}.stg_work_hours"
+
+    for file_meta in all_files:
+        fid = file_meta["id"]
+        fname = file_meta["name"]
+        mtime = file_meta["modifiedTime"]
+
+        if not is_full_sync and processed_map.get(fid) == mtime:
+            skipped += 1
+            continue
+
+        print(f"  📥 Đọc: {fname} ...", end=" ", flush=True)
+
+        if dry_run:
+            print("[DRY RUN]")
+            synced += 1
+            continue
+
+        try:
+            req = drive_svc.files().get_media(fileId=fid)
+            fh = io.BytesIO()
+            dl = MediaIoBaseDownload(fh, req)
+            done = False
+            while not done:
+                _, done = dl.next_chunk()
+            fh.seek(0)
+
+            if fname.lower().endswith(".csv"):
+                df_raw = pd.read_csv(fh)
+            else:
+                try:
+                    df_raw = pd.read_excel(fh, sheet_name=0, engine="calamine")
+                except Exception:
+                    df_raw = pd.read_excel(fh, sheet_name=0)
+
+            df_clean = parse_ot_work_hours_df(df_raw)
+            if df_clean.empty:
+                print("⚠️ Không tìm thấy cột User Code / Attendance Date hợp lệ — bỏ qua")
+                continue
+
+            target_tbl = bq_client.get_table(fact_ref)
+            target_cols = [f.name for f in target_tbl.schema]
+            cols_keep = [c for c in target_cols if c in df_clean.columns]
+
+            df_stg = df_clean[cols_keep].copy()
+            for c in df_stg.columns:
+                df_stg[c] = df_stg[c].astype(str).replace(
+                    {"nan": None, "None": None, "<NA>": None, "NaT": None, "": None}
+                )
+
+            job = bq_client.load_table_from_dataframe(
+                df_stg, stg_ref,
+                job_config=bigquery.LoadJobConfig(write_disposition="WRITE_TRUNCATE"),
+            )
+            job.result()
+
+            schema_map = {f.name: f.field_type for f in target_tbl.schema}
+            type_conv = {"FLOAT": "FLOAT64", "INTEGER": "INT64", "BOOLEAN": "BOOL"}
+
+            def _cast_expr(col_name: str) -> str:
+                bq_t = type_conv.get(schema_map.get(col_name, "STRING").upper(), schema_map.get(col_name, "STRING"))
+                return f"SAFE_CAST(S.`{col_name}` AS {bq_t})"
+
+            insert_cols = ", ".join(f"`{c}`" for c in cols_keep)
+            insert_vals = ", ".join(_cast_expr(c) for c in cols_keep)
+            update_set = ", ".join(
+                f"T.`{c}` = {_cast_expr(c)}"
+                for c in cols_keep if c not in ("user_code", "attendance_date")
+            )
+
+            merge_sql = f"""
+            MERGE `{fact_ref}` T
+            USING (
+              SELECT * FROM `{stg_ref}`
+              WHERE `user_code` IS NOT NULL AND `attendance_date` IS NOT NULL
+              QUALIFY ROW_NUMBER() OVER (
+                PARTITION BY `user_code`, `attendance_date`
+                ORDER BY SAFE_CAST(`final_actual_hours` AS FLOAT64) DESC NULLS LAST
+              ) = 1
+            ) S ON T.`user_code` = S.`user_code`
+               AND T.`attendance_date` = SAFE_CAST(S.`attendance_date` AS DATE)
+            WHEN MATCHED THEN UPDATE SET {update_set}
+            WHEN NOT MATCHED THEN INSERT ({insert_cols}) VALUES ({insert_vals})
+            """
+            bq_client.query(merge_sql).result()
+
+            safe_fname = fname.replace("'", "\\'")
+            log_sql = f"""
+            MERGE `{LOG_TABLE}` L
+            USING (SELECT '{fid}' AS file_id, '{safe_fname}' AS file_name,
+                          '{OT_FOLDER_NAME}' AS folder_name, '{mtime}' AS modified_time,
+                          {len(df_clean)} AS row_count, CURRENT_TIMESTAMP() AS synced_at) N
+            ON L.file_id = N.file_id
+            WHEN MATCHED     THEN UPDATE SET L.file_name=N.file_name, L.modified_time=N.modified_time, L.row_count=N.row_count, L.synced_at=N.synced_at
+            WHEN NOT MATCHED THEN INSERT ROW
+            """
+            bq_client.query(log_sql).result()
+            processed_map[fid] = mtime
+            synced += 1
+            n_days = df_clean["attendance_date"].nunique()
+            print(f"✅ {len(df_clean):,} lượt công ({n_days} ngày)")
+
+        except Exception as e:
+            print(f"❌ Lỗi [{fname}]: {e}")
+
+    return synced, skipped
+
+
 def run_sync_cycle(drive_svc, bq_client, is_full, dry_run, folder, is_daemon: bool = False):
     try:
         rows = bq_client.query(
@@ -1019,6 +1304,16 @@ def run_sync_cycle(drive_svc, bq_client, is_full, dry_run, folder, is_daemon: bo
     )
     total_synced  += s_sla
     total_skipped += sk_sla
+
+    # Quét thư mục OT (giờ công nhân sự, chỉ đồng bộ BigQuery — trả lời Zalo theo lệnh)
+    s_ot, sk_ot = sync_ot_folder(
+        drive_svc, bq_client, processed_map,
+        is_full_sync=is_full,
+        dry_run=dry_run,
+        only_folder=folder,
+    )
+    total_synced  += s_ot
+    total_skipped += sk_ot
 
     elapsed = (datetime.now() - start_time).seconds
     timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
