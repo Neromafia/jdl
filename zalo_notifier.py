@@ -1872,10 +1872,20 @@ def parse_ot_query(raw_text: str, now_vn: datetime.datetime = None) -> dict | No
         except ValueError:
             pass
 
-    # 2. Khoảng ngày cùng tháng: "từ ngày 1 đến ngày 17 tháng 11"
+    # Helper format danh sách ngày rời rạc gọn gàng (VD: [16/11, 17/11] -> "16/11, 17/11/2026")
+    def _fmt_dates_label(date_list: list) -> str:
+        if len(date_list) == 1:
+            return date_list[0].strftime("%d/%m/%Y")
+        years = {d.year for d in date_list}
+        if len(years) == 1:
+            return ", ".join(d.strftime("%d/%m") for d in date_list) + f"/{date_list[0].year}"
+        return ", ".join(d.strftime("%d/%m/%Y") for d in date_list)
+
+    # 2. Khoảng ngày cùng tháng (có hoặc không có "từ"):
+    #    VD: "từ ngày 1 đến ngày 17 tháng 11", "16-17 tháng 11", "1 đến 17 tháng 11"
     m_range_m = re.search(
-        r'(?:từ|tu)\s*(?:ng[àa]y\s*)?(\d{1,2})\s*'
-        r'(?:đến|den|tới|toi|-|–)\s*'
+        r'(?:từ|tu)?\s*(?:ng[àa]y\s*)?(\d{1,2})\s*'
+        r'(?:đến|den|tới|toi|->|–|-|~)\s*'
         r'(?:ng[àa]y\s*)?(\d{1,2})\s*'
         r'th[áa]ng\s*(\d{1,2})(?:\s*(?:/|-|n[ăa]m\s*)(\d{2,4}))?',
         text_lower,
@@ -1889,9 +1899,56 @@ def parse_ot_query(raw_text: str, now_vn: datetime.datetime = None) -> dict | No
             if sd > ed:
                 sd, ed = ed, sd
             lbl = f"{sd.strftime('%d/%m/%Y')} - {ed.strftime('%d/%m/%Y')}"
-            return {"start_date": sd, "end_date": ed, "label": lbl, "is_latest": False}
+            return {"start_date": sd, "end_date": ed, "dates": None, "label": lbl, "is_latest": False}
         except ValueError:
             pass
+
+    # 2b. Nhiều ngày cụ thể dạng D/M: "16/11 và 17/11", "15/11, 16/11, 17/11", "16/11 17/11"
+    all_dm = re.findall(r'(\d{1,2})[/.-](\d{1,2})(?:[/.-](\d{2,4}))?', text_lower)
+    if len(all_dm) >= 2:
+        parsed_list = []
+        for d_s, m_s, y_s in all_dm:
+            try:
+                parsed_list.append(datetime.date(_norm_year(y_s), int(m_s), int(d_s)))
+            except ValueError:
+                pass
+        uniq_dates = sorted(set(parsed_list))
+        if uniq_dates:
+            return {
+                "start_date": uniq_dates[0],
+                "end_date": uniq_dates[-1],
+                "dates": uniq_dates,
+                "label": _fmt_dates_label(uniq_dates),
+                "is_latest": False,
+            }
+
+    # 2c. Một hoặc nhiều ngày cụ thể đứng trước "tháng M":
+    #     VD: "giờ công 16 17 tháng 11", "ngày 16 và 17 tháng 11", "15, 16, 17 tháng 11", "ngày 17 tháng 11"
+    m_days_in_month = re.search(
+        r'(?:ng[àa]y\s*)?(\d{1,2}(?:(?:\s*,\s*|\s+v[àa]\s+|\s*&\s*|\s+)(?:ng[àa]y\s*)?\d{1,2})*)\s*'
+        r'th[áa]ng\s*(\d{1,2})(?:\s*(?:/|-|n[ăa]m\s*)(\d{2,4}))?',
+        text_lower,
+    )
+    if m_days_in_month:
+        days_raw, mm_s, yy_s = m_days_in_month.groups()
+        mm = int(mm_s)
+        yy = _norm_year(yy_s)
+        if 1 <= mm <= 12:
+            parsed_list = []
+            for d_tok in re.findall(r'\d{1,2}', days_raw):
+                try:
+                    parsed_list.append(datetime.date(yy, mm, int(d_tok)))
+                except ValueError:
+                    pass
+            uniq_dates = sorted(set(parsed_list))
+            if uniq_dates:
+                return {
+                    "start_date": uniq_dates[0],
+                    "end_date": uniq_dates[-1],
+                    "dates": uniq_dates,
+                    "label": _fmt_dates_label(uniq_dates),
+                    "is_latest": False,
+                }
 
     # 3. Cả tháng: "tháng 11", "tháng 11/2026", "tháng này", "tháng trước"
     m_month = re.search(r'th[áa]ng\s*(\d{1,2})(?:\s*(?:/|-|n[ăa]m\s*)(\d{2,4}))?', text_lower)
@@ -1902,62 +1959,74 @@ def parse_ot_query(raw_text: str, now_vn: datetime.datetime = None) -> dict | No
             last_d = calendar.monthrange(yy, mm)[1]
             sd = datetime.date(yy, mm, 1)
             ed = datetime.date(yy, mm, last_d)
-            return {"start_date": sd, "end_date": ed, "label": f"Tháng {mm:02d}/{yy}", "is_latest": False}
+            return {"start_date": sd, "end_date": ed, "dates": None, "label": f"Tháng {mm:02d}/{yy}", "is_latest": False}
 
     if "tháng này" in text_lower or "thang nay" in text_lower:
         last_d = calendar.monthrange(today.year, today.month)[1]
         sd = datetime.date(today.year, today.month, 1)
         ed = datetime.date(today.year, today.month, last_d)
-        return {"start_date": sd, "end_date": ed, "label": f"Tháng {today.month:02d}/{today.year}", "is_latest": False}
+        return {"start_date": sd, "end_date": ed, "dates": None, "label": f"Tháng {today.month:02d}/{today.year}", "is_latest": False}
 
     if "tháng trước" in text_lower or "thang truoc" in text_lower:
         first_this = today.replace(day=1)
         prev_last = first_this - timedelta(days=1)
         sd = prev_last.replace(day=1)
         ed = prev_last
-        return {"start_date": sd, "end_date": ed, "label": f"Tháng {sd.month:02d}/{sd.year}", "is_latest": False}
+        return {"start_date": sd, "end_date": ed, "dates": None, "label": f"Tháng {sd.month:02d}/{sd.year}", "is_latest": False}
 
     # 4. Tuần này / tuần trước
     if "tuần này" in text_lower or "tuan nay" in text_lower:
         sd = today - timedelta(days=today.weekday())
         ed = today
-        return {"start_date": sd, "end_date": ed, "label": f"Tuần này ({sd.strftime('%d/%m')} - {ed.strftime('%d/%m/%Y')})", "is_latest": False}
+        return {"start_date": sd, "end_date": ed, "dates": None, "label": f"Tuần này ({sd.strftime('%d/%m')} - {ed.strftime('%d/%m/%Y')})", "is_latest": False}
 
     if "tuần trước" in text_lower or "tuan truoc" in text_lower:
         this_mon = today - timedelta(days=today.weekday())
         sd = this_mon - timedelta(days=7)
         ed = this_mon - timedelta(days=1)
-        return {"start_date": sd, "end_date": ed, "label": f"Tuần trước ({sd.strftime('%d/%m')} - {ed.strftime('%d/%m/%Y')})", "is_latest": False}
+        return {"start_date": sd, "end_date": ed, "dates": None, "label": f"Tuần trước ({sd.strftime('%d/%m')} - {ed.strftime('%d/%m/%Y')})", "is_latest": False}
 
-    # 5. Ngày đơn lẻ
+    # 5. Ngày đơn lẻ hoặc nhiều ngày trong tháng hiện tại (không ghi tháng)
     if "hôm nay" in text_lower or "hom nay" in text_lower:
-        return {"start_date": today, "end_date": today, "label": today.strftime("%d/%m/%Y"), "is_latest": False}
+        return {"start_date": today, "end_date": today, "dates": None, "label": today.strftime("%d/%m/%Y"), "is_latest": False}
     if "hôm qua" in text_lower or "hom qua" in text_lower:
         d = today - timedelta(days=1)
-        return {"start_date": d, "end_date": d, "label": d.strftime("%d/%m/%Y"), "is_latest": False}
+        return {"start_date": d, "end_date": d, "dates": None, "label": d.strftime("%d/%m/%Y"), "is_latest": False}
     if "hôm kia" in text_lower or "hom kia" in text_lower:
         d = today - timedelta(days=2)
-        return {"start_date": d, "end_date": d, "label": d.strftime("%d/%m/%Y"), "is_latest": False}
+        return {"start_date": d, "end_date": d, "dates": None, "label": d.strftime("%d/%m/%Y"), "is_latest": False}
 
-    m_single = re.search(r'(\d{1,2})[/.-](\d{1,2})(?:[/.-](\d{2,4}))?', text_lower)
-    if m_single:
-        d, m_val, y_val = m_single.groups()
+    if len(all_dm) == 1:
+        d, m_val, y_val = all_dm[0]
         try:
             dt = datetime.date(_norm_year(y_val), int(m_val), int(d))
-            return {"start_date": dt, "end_date": dt, "label": dt.strftime("%d/%m/%Y"), "is_latest": False}
+            return {"start_date": dt, "end_date": dt, "dates": None, "label": dt.strftime("%d/%m/%Y"), "is_latest": False}
         except ValueError:
             pass
 
-    m_day_only = re.search(r'ng[àa]y\s*(\d{1,2})\b', text_lower)
+    m_day_only = re.search(
+        r'ng[àa]y\s*(\d{1,2}(?:(?:\s*,\s*|\s+v[àa]\s+|\s*&\s*|\s+)(?:ng[àa]y\s*)?\d{1,2})*)\b',
+        text_lower,
+    )
     if m_day_only:
-        try:
-            dt = datetime.date(today.year, today.month, int(m_day_only.group(1)))
-            return {"start_date": dt, "end_date": dt, "label": dt.strftime("%d/%m/%Y"), "is_latest": False}
-        except ValueError:
-            pass
+        parsed_list = []
+        for d_tok in re.findall(r'\d{1,2}', m_day_only.group(1)):
+            try:
+                parsed_list.append(datetime.date(today.year, today.month, int(d_tok)))
+            except ValueError:
+                pass
+        uniq_dates = sorted(set(parsed_list))
+        if uniq_dates:
+            return {
+                "start_date": uniq_dates[0],
+                "end_date": uniq_dates[-1],
+                "dates": uniq_dates if len(uniq_dates) > 1 else None,
+                "label": _fmt_dates_label(uniq_dates),
+                "is_latest": False,
+            }
 
     # 6. Chỉ gõ "@bot OT" -> tự động lấy ngày mới nhất có trong bảng fact_work_hours
-    return {"start_date": None, "end_date": None, "label": "Ngày mới nhất", "is_latest": True}
+    return {"start_date": None, "end_date": None, "dates": None, "label": "Ngày mới nhất", "is_latest": True}
 
 
 def format_ot_report(df: pd.DataFrame, period_label: str, is_single_day: bool = True) -> list[str]:
@@ -2072,14 +2141,15 @@ def format_ot_report(df: pd.DataFrame, period_label: str, is_single_day: bool = 
 
 
 def query_ot_report(params: dict) -> list[str]:
-    """Truy vấn BigQuery `fact_work_hours` theo khoảng ngày và trả về danh sách tin nhắn Zalo."""
+    """Truy vấn BigQuery `fact_work_hours` theo khoảng ngày hoặc danh sách ngày rời rạc và trả về tin nhắn Zalo."""
     client = get_bigquery_client()
 
     start_date = params.get("start_date")
     end_date = params.get("end_date")
+    dates_list = params.get("dates")
     label = params.get("label") or ""
 
-    if params.get("is_latest") or start_date is None:
+    if params.get("is_latest") or (start_date is None and not dates_list):
         df_max = client.query(
             "SELECT MAX(attendance_date) AS max_d FROM `jingdong-505914.wms_data.fact_work_hours`"
         ).to_dataframe()
@@ -2088,7 +2158,19 @@ def query_ot_report(params: dict) -> list[str]:
         latest_d = pd.to_datetime(df_max["max_d"].iloc[0]).date()
         start_date = latest_d
         end_date = latest_d
+        dates_list = None
         label = latest_d.strftime("%d/%m/%Y")
+
+    if dates_list:
+        in_clause = ", ".join(f"DATE '{d.strftime('%Y-%m-%d')}'" for d in dates_list)
+        where_sql = f"attendance_date IN ({in_clause})"
+        is_single = (len(dates_list) == 1)
+    else:
+        where_sql = (
+            f"attendance_date >= DATE '{start_date.strftime('%Y-%m-%d')}' "
+            f"AND attendance_date <= DATE '{end_date.strftime('%Y-%m-%d')}'"
+        )
+        is_single = (start_date == end_date)
 
     sql = f"""
     SELECT
@@ -2099,11 +2181,10 @@ def query_ot_report(params: dict) -> list[str]:
         final_actual_hours,
         ot_hours
     FROM `jingdong-505914.wms_data.fact_work_hours`
-    WHERE attendance_date >= DATE '{start_date.strftime('%Y-%m-%d')}'
-      AND attendance_date <= DATE '{end_date.strftime('%Y-%m-%d')}'
+    WHERE {where_sql}
     """
     df = client.query(sql).to_dataframe()
-    return format_ot_report(df, period_label=label, is_single_day=(start_date == end_date))
+    return format_ot_report(df, period_label=label, is_single_day=is_single)
 
 
 def handle_ot_query(raw_text: str, target_chat_id: str = None, dry_run: bool = False) -> tuple[bool, str | list[str]]:
