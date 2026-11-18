@@ -601,7 +601,393 @@ def sync_folder(cfg, drive_svc, bq_client, processed_map, is_full_sync, dry_run,
 
     return synced, skipped
 
-def run_sync_cycle(drive_svc, bq_client, is_full, dry_run, folder):
+
+# ══════════════════════════════════════════════════════════════
+# CHECK QUÁ HẠN (4 FILE THÔ JD WMS TRONG 1 FOLDER -> AUTO-DETECT)
+# ══════════════════════════════════════════════════════════════
+CHECK_QUA_HAN_FOLDER_ID = "1fNswoPcRJvd51oLfaICQ1QntEmizsWBx"
+CHECK_QUA_HAN_FOLDER_NAME = "CHECK_QUA_HAN"
+
+CHECK_QUA_HAN_TYPES = {
+    "DIFF_CENTER": {
+        "stg_table": "stg_diff_center",
+        "fact_table": "fact_diff_center",
+        "mode": "truncate",
+        "required_cols": {"differencetype", "differencestatus", "untreateddifferenceqty"},
+        "datetime_cols": ["create_time"],
+        "int_cols": ["reported_qty", "untreated_qty"],
+        "column_mapping": {
+            "Goods NO.": "goods_no",
+            "Owner": "owner_code",
+            "Owner Name": "owner_name",
+            "Cell": "cell",
+            "Goods Name": "goods_name",
+            "Reported Difference QTY.": "reported_qty",
+            "Untreated Difference QTY.": "untreated_qty",
+            "Difference Type": "difference_type",
+            "Difference Status": "difference_status",
+            "Operation Type": "operation_type",
+            "Task NO.": "task_no",
+            "Operator": "operator",
+            "Create Time": "create_time",
+        },
+    },
+    "PUTAWAY_BACKLOG": {
+        "stg_table": "stg_putaway_backlog",
+        "fact_table": "fact_putaway_backlog",
+        "mode": "truncate",
+        "required_cols": {"putawaycontainernumber", "containercompletiontime", "pendingqtyforputaway"},
+        "datetime_cols": ["start_receiving_time", "container_completion_time"],
+        "int_cols": ["receiving_qty", "pending_qty"],
+        "column_mapping": {
+            "JD Inbound NO.": "order_no",
+            "Customer Inbound NO.": "customer_inbound_no",
+            "Putaway Container Number": "container_no",
+            "Start Receiving Time": "start_receiving_time",
+            "Container Completion Time": "container_completion_time",
+            "Operator": "operator",
+            "Target Storage Zone": "target_zone",
+            "Receiving QTY.": "receiving_qty",
+            "Pending QTY. For Putaway": "pending_qty",
+            "Task Type": "task_type",
+            "Owner": "owner_code",
+            "Owner Name": "owner_name",
+        },
+    },
+    "RECEIVING_BACKLOG": {
+        "stg_table": "stg_receiving_backlog",
+        "fact_table": "fact_receiving_backlog",
+        "mode": "truncate",
+        "required_cols": {"receivedate", "tobereceivedqty", "startreceivingtime"},
+        "forbidden_cols": {"putawaycontainernumber"},
+        "datetime_cols": ["receive_date", "start_receiving_time"],
+        "int_cols": ["total_qty", "to_be_received_qty"],
+        "column_mapping": {
+            "Receive Date": "receive_date",
+            "JD Inbound NO.": "order_no",
+            "Customer Inbound NO.": "customer_inbound_no",
+            "Total QTY.": "total_qty",
+            "To Be Received QTY.": "to_be_received_qty",
+            "Task Type": "task_type",
+            "Status": "status",
+            "Start Receiving Time": "start_receiving_time",
+            "Owner": "owner_code",
+            "Owner Name": "owner_name",
+        },
+    },
+    "UNLOADING_RESULT": {
+        "stg_table": "stg_unloading_result",
+        "fact_table": "fact_unloading_result",
+        "mode": "merge",
+        "merge_key": "order_no",
+        "required_cols": {"cargotruckpackageno", "perchaseorderno", "arrivaltype", "unloadtime"},
+        "datetime_cols": ["unload_time"],
+        "int_cols": [],
+        "column_mapping": {
+            "Cargo/Truck/Package NO.": "cargo_no",
+            "Owner": "owner_code",
+            "Owner Name": "owner_name",
+            "Perchase Order NO.": "order_no",
+            "Purchase Order NO.": "order_no",
+            "Customer Inbound NO.": "customer_inbound_no",
+            "Arrival Type": "arrival_type",
+            "Cargo/Truck Type": "truck_type",
+            "Unload Staff ID": "unload_staff_id",
+            "Unload Time": "unload_time",
+            "Status": "status",
+            "Whether Combined": "whether_combined",
+            "Master Order": "master_order",
+        },
+    },
+}
+
+_CHECK_SLA_BATCH_STATE = {
+    "pending": False,
+    "last_sync_ts": 0.0,
+    "synced_types": set(),
+}
+
+
+def _norm_col_key(s: str) -> str:
+    return re.sub(r'[^a-zA-Z0-9]', '', str(s)).lower()
+
+
+def detect_check_qua_han_type(columns) -> str | None:
+    """Tự động nhận diện 1 trong 4 file thô JD WMS dựa trên bộ tên cột (không phụ thuộc tên file)."""
+    norm_cols = {_norm_col_key(c) for c in columns}
+    for type_key, tcfg in CHECK_QUA_HAN_TYPES.items():
+        req = tcfg["required_cols"]
+        forb = tcfg.get("forbidden_cols", set())
+        if req.issubset(norm_cols) and not (forb & norm_cols):
+            return type_key
+    # Fallback nếu JD WMS sửa lỗi chính tả Perchase -> Purchase
+    if {"cargotruckpackageno", "purchaseorderno", "arrivaltype", "unloadtime"}.issubset(norm_cols):
+        return "UNLOADING_RESULT"
+    return None
+
+
+def sync_check_qua_han_folder(
+    drive_svc,
+    bq_client,
+    processed_map: dict,
+    is_full_sync: bool = False,
+    dry_run: bool = False,
+    only_folder: str = None,
+    send_zalo: bool = True,
+    is_daemon: bool = True,
+) -> tuple[int, int]:
+    """
+    Quét thư mục CHECK QUÁ HẠN (chứa 4 file thô JD WMS), tự động nhận diện loại file theo header,
+    nạp vào 4 bảng BigQuery tương ứng và tự động gửi 1 tin nhắn cảnh báo SLA tổng hợp vào Zalo
+    sau khi batch upload ổn định (batch debounce).
+    """
+    global _CHECK_SLA_BATCH_STATE
+
+    if only_folder and only_folder.upper() not in ("CHECK_QUA_HAN", "CHECK QUÁ HẠN", "CHECK_SLA", "SLA"):
+        return 0, 0
+
+    print("\n📂 CHECK QUÁ HẠN", flush=True)
+
+    all_files = []
+    for attempt in range(2):
+        try:
+            results = drive_svc.files().list(
+                q=f"'{CHECK_QUA_HAN_FOLDER_ID}' in parents and trashed=false",
+                fields="files(id,name,modifiedTime)",
+                orderBy="modifiedTime desc",
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
+                pageSize=50,
+            ).execute()
+            all_files = [
+                f for f in results.get("files", [])
+                if f["name"].lower().endswith((".xlsx", ".xls", ".csv"))
+            ]
+            break
+        except Exception as e:
+            if attempt == 0:
+                time.sleep(2)
+                continue
+            print(f"  ❌ Lỗi liệt kê file CHECK QUÁ HẠN: {e}")
+            return 0, 0
+
+    # Bảo vệ thư mục rỗng tạm thời (khi nhân sự vừa xóa 4 file cũ, đang kéo 4 file mới lên)
+    if not all_files:
+        print("  ⏳ Thư mục CHECK QUÁ HẠN đang trống — giữ nguyên dữ liệu BigQuery, chờ batch mới.")
+        return 0, 0
+
+    synced, skipped = 0, 0
+    synced_types_this_cycle = set()
+
+    for file_meta in all_files:
+        fid = file_meta["id"]
+        fname = file_meta["name"]
+        mtime = file_meta["modifiedTime"]
+
+        if not is_full_sync and processed_map.get(fid) == mtime:
+            skipped += 1
+            continue
+
+        print(f"  📥 Đọc: {fname} ...", end=" ", flush=True)
+
+        if dry_run:
+            print("[DRY RUN]")
+            synced += 1
+            continue
+
+        try:
+            req = drive_svc.files().get_media(fileId=fid)
+            fh = io.BytesIO()
+            dl = MediaIoBaseDownload(fh, req)
+            done = False
+            while not done:
+                _, done = dl.next_chunk()
+            fh.seek(0)
+
+            if fname.lower().endswith(".csv"):
+                df = pd.read_csv(fh)
+            else:
+                try:
+                    df = pd.read_excel(fh, sheet_name=0, engine="calamine")
+                except Exception:
+                    df = pd.read_excel(fh, sheet_name=0)
+
+            df.columns = [str(c).strip() for c in df.columns]
+            file_type = detect_check_qua_han_type(df.columns)
+            if not file_type:
+                print("⚠️ Không nhận diện được cấu trúc cột SLA — bỏ qua")
+                continue
+
+            tcfg = CHECK_QUA_HAN_TYPES[file_type]
+
+            # Nếu cùng 1 loại snapshot có nhiều file mới trong 1 lần quét, chỉ lấy file mới nhất (modifiedTime desc)
+            if tcfg["mode"] == "truncate" and file_type in synced_types_this_cycle:
+                print(f"⏭️ Đã nạp bản mới hơn cho {file_type} — ghi nhận bỏ qua bản cũ")
+                safe_fname = fname.replace("'", "\\'")
+                log_sql = f"""
+                MERGE `{LOG_TABLE}` L
+                USING (SELECT '{fid}' AS file_id, '{safe_fname}' AS file_name,
+                              '{CHECK_QUA_HAN_FOLDER_NAME}' AS folder_name, '{mtime}' AS modified_time,
+                              0 AS row_count, CURRENT_TIMESTAMP() AS synced_at) N
+                ON L.file_id = N.file_id
+                WHEN MATCHED     THEN UPDATE SET L.file_name=N.file_name, L.modified_time=N.modified_time, L.row_count=N.row_count, L.synced_at=N.synced_at
+                WHEN NOT MATCHED THEN INSERT ROW
+                """
+                bq_client.query(log_sql).result()
+                processed_map[fid] = mtime
+                skipped += 1
+                continue
+
+            # Map cột chuẩn theo cấu hình
+            norm_map = {_norm_col_key(k): v for k, v in tcfg["column_mapping"].items()}
+            rename_dict = {}
+            used_targets = set()
+            for col in df.columns:
+                nk = _norm_col_key(col)
+                if nk in norm_map and norm_map[nk] not in used_targets:
+                    rename_dict[col] = norm_map[nk]
+                    used_targets.add(norm_map[nk])
+            df = df.rename(columns=rename_dict)
+
+            fact_ref = f"{PROJECT_ID}.{DATASET_ID}.{tcfg['fact_table']}"
+            stg_ref = f"{PROJECT_ID}.{DATASET_ID}.{tcfg['stg_table']}"
+            target_tbl = bq_client.get_table(fact_ref)
+            target_cols = [f.name for f in target_tbl.schema]
+            cols_keep = [c for c in target_cols if c in df.columns]
+
+            if not cols_keep:
+                print(f"⚠️ [{file_type}] Không khớp cột đích nào — bỏ qua")
+                continue
+
+            df_clean = df[cols_keep].copy()
+
+            # Chuẩn hóa kiểu DATETIME và INTEGER an toàn tuyệt đối
+            for dt_col in tcfg.get("datetime_cols", []):
+                if dt_col in df_clean.columns:
+                    parsed = pd.to_datetime(df_clean[dt_col], errors="coerce")
+                    df_clean[dt_col] = parsed.dt.strftime("%Y-%m-%d %H:%M:%S").where(parsed.notna(), None)
+
+            for int_col in tcfg.get("int_cols", []):
+                if int_col in df_clean.columns:
+                    num = pd.to_numeric(df_clean[int_col], errors="coerce")
+                    df_clean[int_col] = num.round().astype("Int64")
+
+            # Đưa toàn bộ về chuỗi sạch trước khi đẩy vào stg_table
+            df_stg = df_clean.copy()
+            for c in df_stg.columns:
+                df_stg[c] = df_stg[c].astype(str).replace(
+                    {"nan": None, "None": None, "<NA>": None, "NaT": None, "": None}
+                )
+
+            schema_map = {f.name: f.field_type for f in target_tbl.schema}
+            type_conv = {"FLOAT": "FLOAT64", "INTEGER": "INT64", "BOOLEAN": "BOOL"}
+            insert_cols = ", ".join(f"`{c}`" for c in cols_keep)
+            insert_vals = ", ".join(
+                f"SAFE_CAST(S.`{c}` AS {type_conv.get(schema_map.get(c, 'STRING').upper(), schema_map.get(c, 'STRING'))})"
+                for c in cols_keep
+            )
+
+            row_count = len(df_stg)
+
+            if tcfg["mode"] == "truncate":
+                bq_client.query(f"TRUNCATE TABLE `{fact_ref}`").result()
+                if row_count > 0:
+                    job = bq_client.load_table_from_dataframe(
+                        df_stg, stg_ref,
+                        job_config=bigquery.LoadJobConfig(write_disposition="WRITE_TRUNCATE"),
+                    )
+                    job.result()
+                    insert_sql = f"""
+                    INSERT INTO `{fact_ref}` ({insert_cols})
+                    SELECT {insert_vals}
+                    FROM `{stg_ref}` S
+                    """
+                    bq_client.query(insert_sql).result()
+            else:
+                # MERGE theo order_no (UNLOADING_RESULT: giữ lịch sử hạ cont cũ)
+                if row_count > 0:
+                    job = bq_client.load_table_from_dataframe(
+                        df_stg, stg_ref,
+                        job_config=bigquery.LoadJobConfig(write_disposition="WRITE_TRUNCATE"),
+                    )
+                    job.result()
+                    mk = tcfg["merge_key"]
+                    update_set = ", ".join(
+                        f"T.`{c}` = SAFE_CAST(S.`{c}` AS {type_conv.get(schema_map.get(c, 'STRING').upper(), schema_map.get(c, 'STRING'))})"
+                        for c in cols_keep if c != mk
+                    )
+                    merge_sql = f"""
+                    MERGE `{fact_ref}` T
+                    USING (
+                      SELECT * FROM `{stg_ref}`
+                      WHERE `{mk}` IS NOT NULL AND TRIM(`{mk}`) != ''
+                      QUALIFY ROW_NUMBER() OVER (
+                        PARTITION BY `{mk}`
+                        ORDER BY SAFE_CAST(`unload_time` AS DATETIME) ASC NULLS LAST
+                      ) = 1
+                    ) S ON T.`{mk}` = S.`{mk}`
+                    WHEN MATCHED THEN UPDATE SET {update_set}
+                    WHEN NOT MATCHED THEN INSERT ({insert_cols}) VALUES ({insert_vals})
+                    """
+                    bq_client.query(merge_sql).result()
+
+            safe_fname = fname.replace("'", "\\'")
+            log_sql = f"""
+            MERGE `{LOG_TABLE}` L
+            USING (SELECT '{fid}' AS file_id, '{safe_fname}' AS file_name,
+                          '{CHECK_QUA_HAN_FOLDER_NAME}' AS folder_name, '{mtime}' AS modified_time,
+                          {row_count} AS row_count, CURRENT_TIMESTAMP() AS synced_at) N
+            ON L.file_id = N.file_id
+            WHEN MATCHED     THEN UPDATE SET L.file_name=N.file_name, L.modified_time=N.modified_time, L.row_count=N.row_count, L.synced_at=N.synced_at
+            WHEN NOT MATCHED THEN INSERT ROW
+            """
+            bq_client.query(log_sql).result()
+            processed_map[fid] = mtime
+            synced += 1
+            synced_types_this_cycle.add(file_type)
+            print(f"✅ [{file_type}] {row_count:,} dòng")
+
+        except Exception as e:
+            print(f"❌ Lỗi [{fname}]: {e}")
+
+    # Cơ chế batch debounce để không gửi tin nhắn nửa vời khi nhân sự đang kéo thả lần lượt 4 file
+    if send_zalo and not dry_run:
+        now_ts = time.time()
+        should_send_now = False
+
+        if synced_types_this_cycle:
+            _CHECK_SLA_BATCH_STATE["synced_types"].update(synced_types_this_cycle)
+            _CHECK_SLA_BATCH_STATE["last_sync_ts"] = now_ts
+            _CHECK_SLA_BATCH_STATE["pending"] = True
+            if len(_CHECK_SLA_BATCH_STATE["synced_types"]) >= 4 or not is_daemon:
+                should_send_now = True
+            else:
+                print(
+                    f"  ⏳ Đã nhận {len(_CHECK_SLA_BATCH_STATE['synced_types'])}/4 file SLA "
+                    f"({', '.join(sorted(_CHECK_SLA_BATCH_STATE['synced_types']))}) — chờ chu kỳ kế tiếp để gửi gọn 1 tin Zalo.",
+                    flush=True,
+                )
+        elif _CHECK_SLA_BATCH_STATE["pending"] and (now_ts - _CHECK_SLA_BATCH_STATE["last_sync_ts"] >= 55):
+            should_send_now = True
+
+        if should_send_now:
+            try:
+                import zalo_notifier
+                z_res = zalo_notifier.scan_and_alert_warehouse_sla()
+                if z_res.get("status") == "sent":
+                    print(f"  📢 Zalo SLA Kho: {z_res.get('message')}", flush=True)
+                elif z_res.get("status") == "error":
+                    print(f"  ⚠️ Zalo SLA Kho: {z_res.get('message')}", flush=True)
+            except Exception as ez:
+                print(f"  ⚠️ Lỗi gửi cảnh báo Zalo SLA Kho: {ez}", flush=True)
+            finally:
+                _CHECK_SLA_BATCH_STATE["pending"] = False
+                _CHECK_SLA_BATCH_STATE["synced_types"].clear()
+
+    return synced, skipped
+
+
+def run_sync_cycle(drive_svc, bq_client, is_full, dry_run, folder, is_daemon: bool = False):
     try:
         rows = bq_client.query(
             f"SELECT file_id, modified_time FROM `{LOG_TABLE}`").result()
@@ -621,6 +1007,18 @@ def run_sync_cycle(drive_svc, bq_client, is_full, dry_run, folder):
         )
         total_synced  += s
         total_skipped += sk
+
+    # Quét thư mục CHECK QUÁ HẠN (4 file thô JD WMS tự nhận diện + cảnh báo Zalo tự động)
+    s_sla, sk_sla = sync_check_qua_han_folder(
+        drive_svc, bq_client, processed_map,
+        is_full_sync=is_full,
+        dry_run=dry_run,
+        only_folder=folder,
+        send_zalo=True,
+        is_daemon=is_daemon,
+    )
+    total_synced  += s_sla
+    total_skipped += sk_sla
 
     elapsed = (datetime.now() - start_time).seconds
     timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -687,7 +1085,7 @@ def main():
 
     while True:
         try:
-            run_sync_cycle(drive_svc, bq_client, args.full, args.dry_run, args.folder)
+            run_sync_cycle(drive_svc, bq_client, args.full, args.dry_run, args.folder, is_daemon=True)
         except Exception as err:
             print(f"⚠️ Lỗi trong chu kỳ quét: {err}")
         

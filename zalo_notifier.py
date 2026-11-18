@@ -1379,3 +1379,408 @@ def handle_productivity_query(raw_text: str, target_chat_id: str = None, dry_run
     if all_ok:
         return True, f"Đã gửi bảng sản lượng nhân sự ({len(messages)} tin) vào Zalo thành công."
     return False, f"Không thể gửi tin Zalo: {last_err}"
+
+
+# ==============================================================================
+# CẢNH BÁO QUÁ HẠN SLA KHO (3-IN-1: NGHIỆM THU / LÊN KỆ / CHÊNH LỆCH)
+# Tự động gửi vào Zalo khi phát hiện dữ liệu mới tải lên thư mục CHECK QUÁ HẠN
+# ==============================================================================
+
+def _add_sla_work_hours(start_dt: datetime.datetime, hours: int, exclude_sat: bool = True) -> datetime.datetime:
+    """
+    Cộng giờ SLA theo ngày làm việc:
+      - exclude_sat=True: không tính Thứ 7 (5) và Chủ Nhật (6).
+      - exclude_sat=False: chỉ không tính Chủ Nhật (6), Thứ 7 vẫn tính bình thường.
+      - Nếu thời điểm bắt đầu rơi vào ngày nghỉ, đẩy sang 00:00:00 ngày làm việc kế tiếp.
+    """
+    excluded = {5, 6} if exclude_sat else {6}
+    cur = start_dt
+    if cur.weekday() in excluded:
+        cur = cur.replace(hour=0, minute=0, second=0, microsecond=0)
+        while cur.weekday() in excluded:
+            cur += timedelta(days=1)
+
+    rem_sec = int(hours * 3600)
+    while rem_sec > 0:
+        if cur.weekday() in excluded:
+            cur = (cur + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+            continue
+        next_midnight = (cur + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        avail_sec = int((next_midnight - cur).total_seconds())
+        if rem_sec <= avail_sec:
+            return cur + timedelta(seconds=rem_sec)
+        rem_sec -= avail_sec
+        cur = next_midnight
+    return cur
+
+
+def _fmt_sla_rem(rem_sec: float) -> str:
+    """Định dạng thời gian còn lại hoặc đã trễ gọn gàng (TRỄ XhYp / còn XhYp)."""
+    if rem_sec < 0:
+        s = abs(rem_sec)
+        h = int(s // 3600)
+        m = int((s % 3600) // 60)
+        return f"TRỄ {h}h{m:02d}p" if h > 0 else f"TRỄ {m}p"
+    h = int(rem_sec // 3600)
+    m = int((rem_sec % 3600) // 60)
+    return f"còn {h}h{m:02d}p" if h > 0 else f"còn {m}p"
+
+
+def _to_naive_dt(val):
+    """Chuyển đổi an toàn Timestamp/str/datetime sang datetime naive (hoặc None)."""
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return None
+    ts = pd.to_datetime(val, errors="coerce")
+    if pd.isna(ts):
+        return None
+    dt = ts.to_pydatetime()
+    if dt.tzinfo is not None:
+        dt = dt.replace(tzinfo=None)
+    return dt
+
+
+def format_warehouse_sla_report(
+    df_rb: pd.DataFrame,
+    df_ul: pd.DataFrame,
+    df_pa: pd.DataFrame,
+    df_dc: pd.DataFrame,
+    now_vn: datetime.datetime = None,
+    urgent_hours: float = 2.0,
+) -> tuple[list[str], dict]:
+    """
+    Tổng hợp 1 tin nhắn cảnh báo SLA duy nhất cho 3 khâu:
+      1. Chờ nghiệm thu (Receiving):
+         - PI: từ unload_time (fallback start_receiving_time). Gói hàng/Package = 24h; Cont/Xe tải/YaoYao/khác = 48h. Trừ T7 & CN.
+         - RS: từ start_receiving_time (nếu có). 48h. Trừ T7 & CN.
+         - Loại bỏ các đơn đã có mặt trong Put Away Backlog.
+      2. Chờ lên kệ (Put Away):
+         - Loại ReturnRack; gom theo order_no lấy MIN(COALESCE(start_receiving_time, container_completion_time)).
+         - PI = 24h; RS = 48h. Trừ T7 & CN.
+      3. Chờ xử lý chênh lệch (Diff Center):
+         - Từ create_time. 48h. Chỉ trừ CN (T7 vẫn tính).
+    Quy tắc hiển thị:
+      - Chỉ lọc các đơn/mã có hạn trong ngày hôm nay hoặc đã quá hạn (deadline.date() <= today_vn).
+      - Chỉ liệt kê chi tiết từng mã đơn cho đơn ĐÃ QUÁ HẠN hoặc SẮP QUÁ HẠN <= 2h.
+      - Đơn còn hạn hôm nay (> 2h): gom gọn theo Tên khách (số lượng).
+      - Không ghi chữ '(An toàn)'.
+    """
+    if now_vn is None:
+        now_vn = datetime.datetime.now(VN_TZ).replace(tzinfo=None)
+    today_vn = now_vn.date()
+
+    # Chuẩn bị tập đơn Putaway để loại trừ khỏi Receiving Backlog
+    pa_order_set = set()
+    if df_pa is not None and not df_pa.empty and "order_no" in df_pa.columns:
+        pa_order_set = set(
+            df_pa["order_no"].dropna().astype(str).str.strip().str.upper()
+        )
+
+    # Chuẩn bị bản đồ Unloading (order_no -> earliest unload_time, arrival_type)
+    ul_map = {}
+    if df_ul is not None and not df_ul.empty and "order_no" in df_ul.columns:
+        ul_tmp = df_ul.copy()
+        ul_tmp["_ord"] = ul_tmp["order_no"].astype(str).str.strip().str.upper()
+        ul_tmp["_ut"] = pd.to_datetime(ul_tmp.get("unload_time"), errors="coerce")
+        ul_tmp = ul_tmp.sort_values(by="_ut", ascending=True, na_position="last")
+        for _, r in ul_tmp.iterrows():
+            ord_k = r["_ord"]
+            if not ord_k or ord_k in ul_map:
+                continue
+            ul_map[ord_k] = {
+                "unload_time": _to_naive_dt(r.get("unload_time")),
+                "arrival_type": str(r.get("arrival_type") or "").strip(),
+            }
+
+    # --- 1. CHỜ NGHIỆM THU (RECEIVING) ---
+    recv_items = []
+    if df_rb is not None and not df_rb.empty and "order_no" in df_rb.columns:
+        rb_tmp = df_rb.copy()
+        rb_tmp["_ord"] = rb_tmp["order_no"].astype(str).str.strip()
+        rb_tmp["_ord_u"] = rb_tmp["_ord"].str.upper()
+        rb_tmp = rb_tmp[rb_tmp["_ord_u"].str.startswith(("PI", "RS"))]
+        rb_tmp = rb_tmp[~rb_tmp["_ord_u"].isin(pa_order_set)]
+        rb_tmp["_srt"] = pd.to_datetime(rb_tmp.get("start_receiving_time"), errors="coerce")
+        rb_tmp = rb_tmp.sort_values(by="_srt", ascending=True, na_position="last")
+        rb_tmp = rb_tmp.drop_duplicates(subset=["_ord_u"], keep="first")
+
+        for _, r in rb_tmp.iterrows():
+            ord_no = r["_ord"]
+            ord_u = r["_ord_u"]
+            owner_clean = clean_packing_client_name(r.get("owner_name") or "Không rõ")
+            srt = _to_naive_dt(r.get("start_receiving_time"))
+
+            if ord_u.startswith("PI"):
+                ul_info = ul_map.get(ord_u, {})
+                start_dt = ul_info.get("unload_time") or srt
+                if start_dt is None:
+                    continue
+                arr_low = ul_info.get("arrival_type", "").lower()
+                is_pkg = arr_low in ("package", "bao hàng", "gói hàng", "goi hang")
+                sla_h = 24 if is_pkg else 48
+            else:
+                # RS (Hàng trả): 48h từ lúc quét con hàng đầu tiên
+                if srt is None:
+                    continue
+                start_dt = srt
+                sla_h = 48
+
+            deadline = _add_sla_work_hours(start_dt, sla_h, exclude_sat=True)
+            if deadline.date() <= today_vn:
+                rem_sec = (deadline - now_vn).total_seconds()
+                recv_items.append({
+                    "id": ord_no,
+                    "client": owner_clean,
+                    "start_dt": start_dt,
+                    "deadline": deadline,
+                    "rem_sec": rem_sec,
+                    "extra": "",
+                })
+
+    # --- 2. CHỜ LÊN KỆ (PUT AWAY) ---
+    pa_items = []
+    if df_pa is not None and not df_pa.empty and "order_no" in df_pa.columns:
+        pa_tmp = df_pa.copy()
+        pa_tmp["_ord"] = pa_tmp["order_no"].astype(str).str.strip()
+        pa_tmp["_ord_u"] = pa_tmp["_ord"].str.upper()
+        pa_tmp = pa_tmp[pa_tmp["_ord_u"].str.startswith(("PI", "RS"))]
+        if "target_zone" in pa_tmp.columns:
+            tz_low = pa_tmp["target_zone"].fillna("").astype(str).str.strip().str.lower()
+            pa_tmp = pa_tmp[~tz_low.str.contains("returnrack", na=False)]
+
+        srt_ser = pd.to_datetime(pa_tmp.get("start_receiving_time"), errors="coerce")
+        cct_ser = pd.to_datetime(pa_tmp.get("container_completion_time"), errors="coerce")
+        pa_tmp["_eff_start"] = srt_ser.combine_first(cct_ser)
+        pa_tmp = pa_tmp[pa_tmp["_eff_start"].notna()]
+
+        if not pa_tmp.empty:
+            pa_grp = (
+                pa_tmp.sort_values("_eff_start", ascending=True)
+                .groupby("_ord_u", as_index=False)
+                .first()
+            )
+            for _, r in pa_grp.iterrows():
+                ord_no = r["_ord"]
+                ord_u = r["_ord_u"]
+                owner_clean = clean_packing_client_name(r.get("owner_name") or "Không rõ")
+                start_dt = _to_naive_dt(r["_eff_start"])
+                if start_dt is None:
+                    continue
+                sla_h = 24 if ord_u.startswith("PI") else 48
+                deadline = _add_sla_work_hours(start_dt, sla_h, exclude_sat=True)
+                if deadline.date() <= today_vn:
+                    rem_sec = (deadline - now_vn).total_seconds()
+                    pa_items.append({
+                        "id": ord_no,
+                        "client": owner_clean,
+                        "start_dt": start_dt,
+                        "deadline": deadline,
+                        "rem_sec": rem_sec,
+                        "extra": "",
+                    })
+
+    # --- 3. CHỜ XỬ LÝ CHÊNH LỆCH (DIFF CENTER) ---
+    dc_items = []
+    if df_dc is not None and not df_dc.empty and "create_time" in df_dc.columns:
+        for _, r in df_dc.iterrows():
+            start_dt = _to_naive_dt(r.get("create_time"))
+            if start_dt is None:
+                continue
+            deadline = _add_sla_work_hours(start_dt, 48, exclude_sat=False)
+            if deadline.date() <= today_vn:
+                rem_sec = (deadline - now_vn).total_seconds()
+                owner_clean = clean_packing_client_name(r.get("owner_name") or "Không rõ")
+                item_id = str(r.get("goods_no") or r.get("task_no") or "N/A").strip()
+                cell = str(r.get("cell") or "").strip()
+                dtype_raw = str(r.get("difference_type") or "").strip()
+                dtype_low = dtype_raw.lower()
+                if "less" in dtype_low or "short" in dtype_low or "thiếu" in dtype_low or "loss" in dtype_low:
+                    dtype_vn = "Thiếu"
+                elif "more" in dtype_low or "over" in dtype_low or "dư" in dtype_low or "surplus" in dtype_low:
+                    dtype_vn = "Dư"
+                else:
+                    dtype_vn = dtype_raw
+                qty_val = r.get("untreated_qty")
+                if qty_val is None or (isinstance(qty_val, float) and pd.isna(qty_val)):
+                    qty_val = r.get("reported_qty")
+                try:
+                    qty_str = f"{int(float(qty_val))}" if qty_val is not None and not pd.isna(qty_val) else ""
+                except Exception:
+                    qty_str = ""
+                parts = []
+                if cell:
+                    parts.append(cell)
+                if dtype_vn or qty_str:
+                    parts.append(f"{dtype_vn} {qty_str}".strip())
+                extra_info = f" ({' | '.join(parts)})" if parts else ""
+                dc_items.append({
+                    "id": item_id,
+                    "client": owner_clean,
+                    "start_dt": start_dt,
+                    "deadline": deadline,
+                    "rem_sec": rem_sec,
+                    "extra": extra_info,
+                })
+
+    # Tổng hợp thống kê
+    all_buckets = [
+        ("1. CHỜ NGHIỆM THU", "đơn", recv_items),
+        ("2. CHỜ LÊN KỆ", "đơn", pa_items),
+        ("3. CHỜ XỬ LÝ CHÊNH LỆCH", "mã", dc_items),
+    ]
+
+    urgent_sec = urgent_hours * 3600.0
+    total_today = sum(len(b[2]) for b in all_buckets)
+    total_overdue = sum(sum(1 for it in b[2] if it["rem_sec"] < 0) for b in all_buckets)
+    total_urgent = sum(sum(1 for it in b[2] if 0 <= it["rem_sec"] <= urgent_sec) for b in all_buckets)
+
+    header = "[CẢNH BÁO QUÁ HẠN SLA KHO - KHO JDL]"
+    lines = [
+        header,
+        f"Cập nhật: {now_vn.strftime('%H:%M %d/%m/%Y')}",
+    ]
+
+    if total_today == 0:
+        lines.append("")
+        lines.append("Hiện không có đơn/mã nào đến hạn trong hôm nay hoặc quá hạn:")
+        lines.append("- Chờ nghiệm thu: 0 đơn")
+        lines.append("- Chờ lên kệ: 0 đơn")
+        lines.append("- Chờ xử lý chênh lệch: 0 mã")
+    else:
+        summary_parts = [f"Hạn hôm nay: {total_today:,}"]
+        if total_overdue > 0:
+            summary_parts.append(f"Quá hạn: {total_overdue:,}")
+        if total_urgent > 0:
+            summary_parts.append(f"Sắp quá hạn <=2h: {total_urgent:,}")
+        lines.append("Tổng quan: " + " | ".join(summary_parts))
+
+        for title, unit, items in all_buckets:
+            lines.append("")
+            if not items:
+                lines.append(f"{title}: Không có {unit} đến hạn hôm nay.")
+                continue
+
+            overdue = sorted([it for it in items if it["rem_sec"] < 0], key=lambda x: (x["client"], x["rem_sec"]))
+            urgent = sorted([it for it in items if 0 <= it["rem_sec"] <= urgent_sec], key=lambda x: (x["client"], x["rem_sec"]))
+            later = [it for it in items if it["rem_sec"] > urgent_sec]
+
+            hdr_stats = [f"{len(items):,} {unit}"]
+            if overdue:
+                hdr_stats.append(f"Trễ: {len(overdue):,}")
+            if urgent:
+                hdr_stats.append(f"<=2h: {len(urgent):,}")
+            lines.append(f"{title} ({' | '.join(hdr_stats)})")
+
+            def _append_detail_group(sub_items: list, group_label: str):
+                lines.append(f"• {group_label} ({len(sub_items):,} {unit}):")
+                by_client = {}
+                for it in sub_items:
+                    by_client.setdefault(it["client"], []).append(it)
+                for cli, cli_items in by_client.items():
+                    lines.append(f"  - {cli} ({len(cli_items)}):")
+                    for it in cli_items:
+                        s_str = it["start_dt"].strftime("%H:%M %d/%m")
+                        d_str = it["deadline"].strftime("%H:%M %d/%m")
+                        r_str = _fmt_sla_rem(it["rem_sec"])
+                        lines.append(f"    + {it['id']}{it['extra']} | Nhận: {s_str} | Hạn: {d_str} ({r_str})")
+
+            if overdue:
+                _append_detail_group(overdue, "ĐÃ QUÁ HẠN")
+            if urgent:
+                _append_detail_group(urgent, f"SẮP QUÁ HẠN <= {urgent_hours:g}H")
+            if later:
+                cnt_map = {}
+                for it in later:
+                    cnt_map[it["client"]] = cnt_map.get(it["client"], 0) + 1
+                sorted_cnt = sorted(cnt_map.items(), key=lambda x: (-x[1], x[0]))
+                compact = ", ".join(f"{k} ({v})" for k, v in sorted_cnt)
+                lines.append(f"• Hạn hôm nay (> {urgent_hours:g}h) ({len(later):,} {unit}): {compact}")
+
+    stats = {
+        "total_today": total_today,
+        "total_overdue": total_overdue,
+        "total_urgent": total_urgent,
+        "recv_today": len(recv_items),
+        "pa_today": len(pa_items),
+        "dc_today": len(dc_items),
+    }
+    messages = _split_zalo_lines(lines, header_prefix=header, max_chars=1800)
+    return messages, stats
+
+
+def scan_and_alert_warehouse_sla(target_chat_id: str = None, dry_run: bool = False) -> dict:
+    """
+    Truy vấn 4 bảng SLA trên BigQuery (receiving_backlog, unloading_result, putaway_backlog, diff_center),
+    tạo 1 báo cáo tổng hợp duy nhất và tự động gửi vào Nhóm Chat Zalo.
+    """
+    cfg = get_zalo_config()
+    if not dry_run and not cfg.get("enabled"):
+        return {"status": "disabled", "message": "Tính năng thông báo Zalo đang tắt."}
+
+    chat_id = target_chat_id or cfg.get("chat_id")
+    if not dry_run and not chat_id:
+        return {"status": "not_configured", "message": "Chưa cấu hình chat_id nhóm Zalo."}
+
+    try:
+        client = get_bigquery_client()
+        now_vn = datetime.datetime.now(VN_TZ).replace(tzinfo=None)
+
+        df_rb = client.query("""
+            SELECT order_no, owner_name, start_receiving_time, receive_date, to_be_received_qty, status
+            FROM `jingdong-505914.wms_data.fact_receiving_backlog`
+        """).to_dataframe()
+
+        df_ul = client.query("""
+            SELECT order_no, arrival_type, unload_time, owner_name
+            FROM `jingdong-505914.wms_data.fact_unloading_result`
+        """).to_dataframe()
+
+        df_pa = client.query("""
+            SELECT order_no, owner_name, start_receiving_time, container_completion_time, target_zone
+            FROM `jingdong-505914.wms_data.fact_putaway_backlog`
+        """).to_dataframe()
+
+        df_dc = client.query("""
+            SELECT goods_no, task_no, owner_name, cell, difference_type, reported_qty, untreated_qty, create_time
+            FROM `jingdong-505914.wms_data.fact_diff_center`
+        """).to_dataframe()
+    except Exception as e:
+        return {"status": "error", "message": f"Lỗi truy vấn BigQuery SLA kho: {e}"}
+
+    messages, stats = format_warehouse_sla_report(df_rb, df_ul, df_pa, df_dc, now_vn=now_vn)
+
+    if dry_run:
+        return {
+            "status": "dry_run",
+            "messages": messages,
+            "stats": stats,
+            "message": f"[DRY RUN] Đã tạo {len(messages)} tin nhắn cảnh báo SLA kho.",
+        }
+
+    all_ok = True
+    last_err = ""
+    for msg in messages:
+        if cfg.get("bot_token") and chat_id:
+            url = f"https://bot-api.zaloplatforms.com/bot{cfg['bot_token']}/sendMessage"
+            res = requests.post(
+                url,
+                json={"chat_id": chat_id, "text": msg},
+                headers={"Content-Type": "application/json"},
+                timeout=15,
+            )
+            if res.status_code != 200:
+                all_ok = False
+                last_err = f"Lỗi Zalo API [{res.status_code}]: {res.text}"
+        else:
+            ok, err = send_zalo_message(msg, target_chat_id=chat_id)
+            if not ok:
+                all_ok = False
+                last_err = err
+        time.sleep(0.4)
+
+    if all_ok:
+        return {
+            "status": "sent",
+            "stats": stats,
+            "message": f"Đã gửi cảnh báo SLA kho ({len(messages)} tin | Trễ: {stats['total_overdue']}, <=2h: {stats['total_urgent']}, Hạn hôm nay: {stats['total_today']}) vào Zalo.",
+        }
+    return {"status": "error", "message": f"Không thể gửi tin Zalo SLA kho: {last_err}"}
