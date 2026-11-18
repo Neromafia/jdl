@@ -2007,7 +2007,7 @@ def format_ot_report(df: pd.DataFrame, period_label: str, is_single_day: bool = 
         "1. TỔNG QUAN",
     ]
     if single_view:
-        lines.append(f"- Nhân sự: {total_records:,} người (đi làm: {len(worked_df):,} | có OT: {len(ot_df):,})")
+        lines.append(f"- Nhân sự đi làm: {len(worked_df):,} người (có OT: {len(ot_df):,})")
     else:
         uniq_users = int(worked_df["user_code"].nunique())
         lines.append(f"- Lượt đi làm: {len(worked_df):,} lượt ({uniq_users:,} người) | Lượt có OT: {len(ot_df):,}")
