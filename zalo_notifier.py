@@ -1229,8 +1229,7 @@ def query_worker_productivity_report(params: dict) -> list[str]:
         else:
             tot_o = int(df_pt['orders'].iloc[0] or 0)
             tot_pcs = int(df_pt['pcs'].iloc[0] or 0)
-            tot_t = int(df_pt['tasks'].iloc[0] or 0)
-            lines.append(f"{sec_idx}. NHÂN SỰ PICKING ({len(df_p)} người | Tổng: {tot_o:,} đơn - {tot_pcs:,} pcs - {tot_t:,} lượt)")
+            lines.append(f"{sec_idx}. NHÂN SỰ PICKING ({len(df_p)} người | Tổng: {tot_o:,} đơn - {tot_pcs:,} pcs)")
             df_show = df_p.head(top_n) if top_n else df_p
             for i, (_, r) in enumerate(df_show.iterrows(), 1):
                 lines.append(f"  {i}. {r['worker']}: {int(r['orders']):,} đơn ({int(r['pcs'] or 0):,} pcs)")
