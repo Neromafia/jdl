@@ -1984,6 +1984,7 @@ def format_ot_report(df: pd.DataFrame, period_label: str, is_single_day: bool = 
     work["exception_type"] = work["exception_type"].fillna("").astype(str).str.strip()
     work["final_actual_hours"] = pd.to_numeric(work["final_actual_hours"], errors="coerce").fillna(0.0)
     work["ot_hours"] = (work["final_actual_hours"] - 8.0).clip(lower=0.0)
+    work["regular_hours"] = work["final_actual_hours"].clip(lower=0.0, upper=8.0)
     work["_dt"] = pd.to_datetime(work["attendance_date"], errors="coerce")
 
     n_days = int(work["_dt"].dt.date.nunique())
@@ -1994,8 +1995,9 @@ def format_ot_report(df: pd.DataFrame, period_label: str, is_single_day: bool = 
     ot_df = work[work["ot_hours"] > 0]
 
     total_hours = float(work["final_actual_hours"].sum())
+    total_regular = float(work["regular_hours"].sum())
     total_ot = float(work["ot_hours"].sum())
-    ot_pct = (total_ot / total_hours * 100.0) if total_hours > 0 else 0.0
+    ot_vs_regular_pct = (total_ot / total_regular * 100.0) if total_regular > 0 else 0.0
 
     period_line = f"Kỳ báo cáo: {period_label}" if single_view else f"Kỳ báo cáo: {period_label} ({n_days} ngày có dữ liệu)"
     lines = [
@@ -2009,8 +2011,8 @@ def format_ot_report(df: pd.DataFrame, period_label: str, is_single_day: bool = 
     else:
         uniq_users = int(worked_df["user_code"].nunique())
         lines.append(f"- Lượt đi làm: {len(worked_df):,} lượt ({uniq_users:,} người) | Lượt có OT: {len(ot_df):,}")
-    lines.append(f"- Tổng giờ công (cột AG): {total_hours:,.2f}h")
-    lines.append(f"- Tổng giờ OT (>8h/ngày): {total_ot:,.2f}h ({ot_pct:.1f}%)")
+    lines.append(f"- Tổng giờ công (cột AG): {total_hours:,.2f}h (Bình thường: {total_regular:,.2f}h | OT: {total_ot:,.2f}h)")
+    lines.append(f"- Tỷ lệ OT / giờ công bình thường: {ot_vs_regular_pct:.1f}%")
 
     # 2. Tổng hợp theo Attendance Group (cột M)
     lines.append("")
@@ -2024,15 +2026,17 @@ def format_ot_report(df: pd.DataFrame, period_label: str, is_single_day: bool = 
                 work_cnt=("user_code", "count"),
                 ot_cnt=("ot_hours", lambda s: int((s > 0).sum())),
                 total_hours=("final_actual_hours", "sum"),
+                total_regular=("regular_hours", "sum"),
                 total_ot=("ot_hours", "sum"),
             )
             .sort_values(by=["total_ot", "total_hours"], ascending=[False, False])
         )
         unit = "người" if single_view else "lượt"
         for _, r in grp_df.iterrows():
+            grp_pct = (r["total_ot"] / r["total_regular"] * 100.0) if r["total_regular"] > 0 else 0.0
             lines.append(
-                f"- {r['attendance_group']}: {r['total_ot']:.2f}h OT | {r['total_hours']:.2f}h công "
-                f"({int(r['ot_cnt'])}/{int(r['work_cnt'])} {unit} OT)"
+                f"- {r['attendance_group']}: {r['total_ot']:.2f}h OT ({grp_pct:.1f}% giờ thường) | "
+                f"{r['total_regular']:.2f}h thường | {int(r['ot_cnt'])}/{int(r['work_cnt'])} {unit} OT"
             )
 
     # 3. 3 Lỗi nghiêm trọng (cột N) -> hiển thị chi tiết user_code | group
