@@ -2407,24 +2407,9 @@ def format_pop_material_report(df: pd.DataFrame, period_label: str, is_single_da
     if no_rec_orders > 0:
         lines.append(f"- Chưa có đề xuất vật tư: {no_rec_orders:,} đơn ({no_rec_orders / total_orders * 100.0:.1f}%)")
 
-    # 2. Nhân sự đóng sai vật tư đề xuất (Staff ID | Order Qty | PCS Qty)
+    # 2. Vật tư đóng gói thực tế (Consumables Code | Qty | %)
     lines.append("")
-    lines.append(f"2. NHÂN SỰ ĐÓNG SAI VẬT TƯ ĐỀ XUẤT ({mismatch_orders:,} đơn)")
-    if inc_df.empty:
-        lines.append("- Không có đơn nào đóng sai vật tư đề xuất.")
-    else:
-        inc_df["staff_disp"] = inc_df["worker_name"].replace({"": "Không rõ"})
-        staff_grp = (
-            inc_df.groupby("staff_disp", as_index=False)
-            .agg(orders=("order_no", "count"), pcs=("pcs", "sum"))
-            .sort_values(by=["orders", "pcs"], ascending=[False, False])
-        )
-        for _, r in staff_grp.iterrows():
-            lines.append(f"- {r['staff_disp']}: {int(r['orders']):,} đơn | {int(r['pcs']):,} pcs")
-
-    # 3. Vật tư đóng gói thực tế (Consumables Code | Qty | %)
-    lines.append("")
-    lines.append(f"3. VẬT TƯ ĐÓNG GÓI THỰC TẾ ({total_orders:,} đơn)")
+    lines.append(f"2. VẬT TƯ ĐÓNG GÓI THỰC TẾ ({total_orders:,} đơn)")
     ord_df["act_label"] = ord_df.apply(
         lambda r: _fmt_mat_label(r["packing_material_code"], r["packing_material_name"], "Không quét vật tư"),
         axis=1,
@@ -2439,9 +2424,9 @@ def format_pop_material_report(df: pd.DataFrame, period_label: str, is_single_da
         pct = (r["orders"] / total_orders * 100.0) if total_orders > 0 else 0.0
         lines.append(f"- {r['act_label']}: {int(r['orders']):,} đơn ({pct:.2f}%)")
 
-    # 4. Chi tiết lệch vật tư: Đề xuất -> Thực tế (Order Qty | % trên tổng đơn đóng sai)
+    # 3. Chi tiết lệch vật tư: Đề xuất -> Thực tế (Order Qty | % trên tổng đơn đóng sai)
     lines.append("")
-    lines.append(f"4. CHI TIẾT LỆCH VẬT TƯ: ĐỀ XUẤT -> THỰC TẾ ({mismatch_orders:,} đơn)")
+    lines.append(f"3. CHI TIẾT LỆCH VẬT TƯ: ĐỀ XUẤT -> THỰC TẾ ({mismatch_orders:,} đơn)")
     if inc_df.empty:
         lines.append("- Không phát sinh lệch vật tư.")
     else:
