@@ -2302,12 +2302,23 @@ def _fmt_mat_label(code: str, name: str, empty_fallback: str) -> str:
     return c or n
 
 
+def _fmt_mat_pair_side(code: str, name: str, empty_fallback: str) -> str:
+    c = (code or "").strip()
+    n = (name or "").strip()
+    if not c and not n:
+        return empty_fallback
+    if c and n and c.upper() != n.upper():
+        return f"{c} ({n})"
+    return c or n
+
+
 def format_pop_material_report(df: pd.DataFrame, period_label: str, is_single_day: bool = True) -> list[str]:
     """
-    Tạo báo cáo vật tư đóng gói Pop Mart (theo đơn hàng duy nhất `order_no`):
-      1. Tổng số đơn đã đóng gói, số đơn được đề xuất vật tư, số đơn đóng đúng đề xuất, số đơn không đóng theo đề xuất.
-      2. Danh sách mã / tên vật tư đề xuất & số đơn + tỉ trọng %.
-      3. Danh sách mã / tên vật tư đóng gói thực tế & số đơn + tỉ trọng %.
+    Tạo báo cáo vật tư đóng gói Pop Mart (theo đơn hàng duy nhất `order_no`), khớp 4 bảng mẫu:
+      1. Tổng quan: Tổng đơn, Đơn có đề xuất vật tư, Đóng sai vật tư đề xuất, Đóng đúng vật tư đề xuất.
+      2. Nhân sự đóng sai vật tư đề xuất (Staff ID | Order Qty | PCS Qty).
+      3. Vật tư đóng gói thực tế (Consumables Code | Qty | % tổng đơn).
+      4. Chi tiết cặp lệch vật tư (Đề xuất -> Thực tế | Order Qty | % tổng đơn đóng sai).
     """
     header = "[BÁO CÁO VẬT TƯ ĐÓNG GÓI - POP MART]"
     if df is None or df.empty:
@@ -2319,7 +2330,13 @@ def format_pop_material_report(df: pd.DataFrame, period_label: str, is_single_da
     if work.empty:
         return [f"{header}\nNgày: {period_label}\n\nChưa có dữ liệu đóng gói Pop Mart cho khoảng thời gian này."]
 
-    for c in ["recommended_material_code", "recommended_material_name", "packing_material_code", "packing_material_name"]:
+    for c in [
+        "worker_name",
+        "recommended_material_code",
+        "recommended_material_name",
+        "packing_material_code",
+        "packing_material_name",
+    ]:
         if c not in work.columns:
             work[c] = ""
         work[c] = (
@@ -2330,11 +2347,18 @@ def format_pop_material_report(df: pd.DataFrame, period_label: str, is_single_da
             .replace({"nan": "", "None": "", "<NA>": ""})
         )
 
+    if "packing_qty" in work.columns:
+        work["packing_qty"] = pd.to_numeric(work["packing_qty"], errors="coerce").fillna(0).astype(int)
+    else:
+        work["packing_qty"] = 0
+
     work["_dt"] = pd.to_datetime(work.get("pack_time"), errors="coerce")
     n_days = int(work["_dt"].dt.date.nunique()) if work["_dt"].notna().any() else 1
     single_view = is_single_day and (n_days <= 1)
 
-    # Gom về đúng 1 dòng / đơn hàng (order_no), ưu tiên dòng có đủ mã đề xuất & mã thực tế
+    # Cộng tổng PCS theo từng order_no trước khi gom về 1 dòng / đơn
+    pcs_by_order = work.groupby("order_no")["packing_qty"].sum()
+
     work["_score"] = (
         (work["recommended_material_code"] != "").astype(int) * 2
         + (work["packing_material_code"] != "").astype(int)
@@ -2344,6 +2368,7 @@ def format_pop_material_report(df: pd.DataFrame, period_label: str, is_single_da
         .drop_duplicates(subset=["order_no"], keep="first")
         .copy()
     )
+    ord_df["pcs"] = ord_df["order_no"].map(pcs_by_order).fillna(0).astype(int)
 
     total_orders = len(ord_df)
     ord_df["has_rec"] = ord_df["recommended_material_code"] != ""
@@ -2360,7 +2385,8 @@ def format_pop_material_report(df: pd.DataFrame, period_label: str, is_single_da
     rec_df = ord_df[ord_df["has_rec"]].copy()
     rec_orders = len(rec_df)
     match_orders = int(rec_df["is_matched"].sum()) if rec_orders > 0 else 0
-    mismatch_orders = rec_orders - match_orders
+    inc_df = rec_df[~rec_df["is_matched"]].copy()
+    mismatch_orders = len(inc_df)
     no_rec_orders = total_orders - rec_orders
 
     rec_rate = (rec_orders / total_orders * 100.0) if total_orders > 0 else 0.0
@@ -2374,34 +2400,29 @@ def format_pop_material_report(df: pd.DataFrame, period_label: str, is_single_da
         "",
         "1. TỔNG QUAN",
         f"- Tổng đơn đã đóng gói: {total_orders:,} đơn",
-        f"- Đơn được đề xuất vật tư: {rec_orders:,} đơn ({rec_rate:.1f}%)",
+        f"- Đơn có đề xuất vật tư: {rec_orders:,} đơn ({rec_rate:.1f}%)",
+        f"- Đóng sai vật tư đề xuất: {mismatch_orders:,} đơn ({mismatch_rate:.1f}%)",
         f"- Đóng đúng vật tư đề xuất: {match_orders:,} đơn ({match_rate:.1f}%)",
-        f"- Không đóng theo vật tư đề xuất: {mismatch_orders:,} đơn ({mismatch_rate:.1f}%)",
     ]
     if no_rec_orders > 0:
-        lines.append(f"- Chưa có vật tư đề xuất: {no_rec_orders:,} đơn ({no_rec_orders / total_orders * 100.0:.1f}%)")
+        lines.append(f"- Chưa có đề xuất vật tư: {no_rec_orders:,} đơn ({no_rec_orders / total_orders * 100.0:.1f}%)")
 
-    # 2. Vật tư được đề xuất
+    # 2. Nhân sự đóng sai vật tư đề xuất (Staff ID | Order Qty | PCS Qty)
     lines.append("")
-    lines.append(f"2. VẬT TƯ ĐỀ XUẤT ({rec_orders:,} đơn)")
-    if rec_df.empty:
-        lines.append("- Không có đơn nào có vật tư đề xuất.")
+    lines.append(f"2. NHÂN SỰ ĐÓNG SAI VẬT TƯ ĐỀ XUẤT ({mismatch_orders:,} đơn)")
+    if inc_df.empty:
+        lines.append("- Không có đơn nào đóng sai vật tư đề xuất.")
     else:
-        rec_df["rec_label"] = rec_df.apply(
-            lambda r: _fmt_mat_label(r["recommended_material_code"], r["recommended_material_name"], "Không có mã"),
-            axis=1,
+        inc_df["staff_disp"] = inc_df["worker_name"].replace({"": "Không rõ"})
+        staff_grp = (
+            inc_df.groupby("staff_disp", as_index=False)
+            .agg(orders=("order_no", "count"), pcs=("pcs", "sum"))
+            .sort_values(by=["orders", "pcs"], ascending=[False, False])
         )
-        rec_grp = (
-            rec_df.groupby("rec_label", as_index=False)["order_no"]
-            .count()
-            .rename(columns={"order_no": "orders"})
-            .sort_values(by=["orders", "rec_label"], ascending=[False, True])
-        )
-        for _, r in rec_grp.iterrows():
-            pct = (r["orders"] / rec_orders * 100.0) if rec_orders > 0 else 0.0
-            lines.append(f"- {r['rec_label']}: {int(r['orders']):,} đơn ({pct:.1f}%)")
+        for _, r in staff_grp.iterrows():
+            lines.append(f"- {r['staff_disp']}: {int(r['orders']):,} đơn | {int(r['pcs']):,} pcs")
 
-    # 3. Vật tư đóng gói thực tế
+    # 3. Vật tư đóng gói thực tế (Consumables Code | Qty | %)
     lines.append("")
     lines.append(f"3. VẬT TƯ ĐÓNG GÓI THỰC TẾ ({total_orders:,} đơn)")
     ord_df["act_label"] = ord_df.apply(
@@ -2416,7 +2437,38 @@ def format_pop_material_report(df: pd.DataFrame, period_label: str, is_single_da
     )
     for _, r in act_grp.iterrows():
         pct = (r["orders"] / total_orders * 100.0) if total_orders > 0 else 0.0
-        lines.append(f"- {r['act_label']}: {int(r['orders']):,} đơn ({pct:.1f}%)")
+        lines.append(f"- {r['act_label']}: {int(r['orders']):,} đơn ({pct:.2f}%)")
+
+    # 4. Chi tiết lệch vật tư: Đề xuất -> Thực tế (Order Qty | % trên tổng đơn đóng sai)
+    lines.append("")
+    lines.append(f"4. CHI TIẾT LỆCH VẬT TƯ: ĐỀ XUẤT -> THỰC TẾ ({mismatch_orders:,} đơn)")
+    if inc_df.empty:
+        lines.append("- Không phát sinh lệch vật tư.")
+    else:
+        inc_df["rec_side"] = inc_df.apply(
+            lambda r: _fmt_mat_pair_side(r["recommended_material_code"], r["recommended_material_name"], "N/A"),
+            axis=1,
+        )
+        inc_df["act_side"] = inc_df.apply(
+            lambda r: _fmt_mat_pair_side(r["packing_material_code"], r["packing_material_name"], "Không quét"),
+            axis=1,
+        )
+        pair_grp = (
+            inc_df.groupby(["rec_side", "act_side"], as_index=False)["order_no"]
+            .count()
+            .rename(columns={"order_no": "orders"})
+            .sort_values(by=["orders", "rec_side", "act_side"], ascending=[False, True, True])
+        )
+        max_pairs = 35
+        shown = pair_grp.head(max_pairs)
+        for _, r in shown.iterrows():
+            pct = (r["orders"] / mismatch_orders * 100.0) if mismatch_orders > 0 else 0.0
+            lines.append(f"- {r['rec_side']} -> {r['act_side']}: {int(r['orders']):,} đơn ({pct:.2f}%)")
+        if len(pair_grp) > max_pairs:
+            tail = pair_grp.iloc[max_pairs:]
+            tail_ord = int(tail["orders"].sum())
+            tail_pct = (tail_ord / mismatch_orders * 100.0) if mismatch_orders > 0 else 0.0
+            lines.append(f"- (+ {len(tail)} cặp lệch nhỏ khác): {tail_ord:,} đơn ({tail_pct:.2f}%)")
 
     return _split_zalo_lines(lines, header_prefix=header, max_chars=1800)
 
@@ -2459,6 +2511,8 @@ def query_pop_material_report(params: dict) -> list[str]:
     SELECT
         order_no,
         pack_time,
+        worker_name,
+        SAFE_CAST(packing_qty AS INT64) AS packing_qty,
         recommended_material_code,
         recommended_material_name,
         packing_material_code,
