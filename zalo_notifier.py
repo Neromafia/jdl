@@ -2011,8 +2011,9 @@ def format_ot_report(df: pd.DataFrame, period_label: str, is_single_day: bool = 
     else:
         uniq_users = int(worked_df["user_code"].nunique())
         lines.append(f"- Lượt đi làm: {len(worked_df):,} lượt ({uniq_users:,} người) | Lượt có OT: {len(ot_df):,}")
-    lines.append(f"- Tổng giờ công (cột AG): {total_hours:,.2f}h (Bình thường: {total_regular:,.2f}h | OT: {total_ot:,.2f}h)")
-    lines.append(f"- Tỷ lệ OT / giờ công bình thường: {ot_vs_regular_pct:.1f}%")
+    lines.append(f"- Tổng giờ công: {total_hours:,.2f}h")
+    lines.append(f"- Tổng giờ OT: {total_ot:,.2f}h")
+    lines.append(f"- Tỷ lệ OT: {ot_vs_regular_pct:.1f}%")
 
     # 2. Tổng hợp theo Attendance Group (cột M)
     lines.append("")
@@ -2035,8 +2036,8 @@ def format_ot_report(df: pd.DataFrame, period_label: str, is_single_day: bool = 
         for _, r in grp_df.iterrows():
             grp_pct = (r["total_ot"] / r["total_regular"] * 100.0) if r["total_regular"] > 0 else 0.0
             lines.append(
-                f"- {r['attendance_group']}: {r['total_ot']:.2f}h OT ({grp_pct:.1f}% giờ thường) | "
-                f"{r['total_regular']:.2f}h thường | {int(r['ot_cnt'])}/{int(r['work_cnt'])} {unit} OT"
+                f"- {r['attendance_group']}: {r['total_ot']:.2f}h OT ({grp_pct:.1f}%) | "
+                f"{r['total_hours']:.2f}h công ({int(r['ot_cnt'])}/{int(r['work_cnt'])} {unit} OT)"
             )
 
     # 3. 3 Lỗi nghiêm trọng (cột N) -> hiển thị chi tiết user_code | group
