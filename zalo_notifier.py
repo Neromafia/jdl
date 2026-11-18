@@ -2084,29 +2084,24 @@ def format_ot_report(df: pd.DataFrame, period_label: str, is_single_day: bool = 
     lines.append(f"- Tổng giờ OT: {total_ot:,.2f}h")
     lines.append(f"- Tỷ lệ OT: {ot_vs_regular_pct:.1f}%")
 
-    # 2. Tổng hợp theo Attendance Group (cột M)
+    # 2. Tổng hợp theo Attendance Group (cột M): tên group: số giờ OT - số người OT - tỉ trọng % tổng OT toàn kho
     lines.append("")
     lines.append("2. CHI TIẾT THEO ATTENDANCE GROUP")
-    if worked_df.empty:
-        lines.append("- Không có nhân sự phát sinh giờ công.")
+    if ot_df.empty or total_ot <= 0:
+        lines.append("- Không có nhóm nào phát sinh OT.")
     else:
         grp_df = (
-            worked_df.groupby("attendance_group", as_index=False)
+            ot_df.groupby("attendance_group", as_index=False)
             .agg(
-                work_cnt=("user_code", "count"),
-                ot_cnt=("ot_hours", lambda s: int((s > 0).sum())),
-                total_hours=("final_actual_hours", "sum"),
-                total_regular=("regular_hours", "sum"),
+                ot_users=("user_code", "nunique"),
                 total_ot=("ot_hours", "sum"),
             )
-            .sort_values(by=["total_ot", "total_hours"], ascending=[False, False])
+            .sort_values(by=["total_ot", "ot_users"], ascending=[False, False])
         )
-        unit = "người" if single_view else "lượt"
         for _, r in grp_df.iterrows():
-            grp_pct = (r["total_ot"] / r["total_regular"] * 100.0) if r["total_regular"] > 0 else 0.0
+            grp_share = (r["total_ot"] / total_ot * 100.0) if total_ot > 0 else 0.0
             lines.append(
-                f"- {r['attendance_group']}: {r['total_ot']:.2f}h OT ({grp_pct:.1f}%) | "
-                f"{r['total_hours']:.2f}h công ({int(r['ot_cnt'])}/{int(r['work_cnt'])} {unit} OT)"
+                f"- {r['attendance_group']}: {r['total_ot']:.2f}h - {int(r['ot_users'])} người - {grp_share:.1f}%"
             )
 
     # 3. 3 Lỗi nghiêm trọng (cột N) -> hiển thị chi tiết user_code | group
