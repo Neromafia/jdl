@@ -350,14 +350,27 @@ def start_bot_listener(stop_event: threading.Event = None):
                     is_group = chat_id.startswith("zgr-")
                     is_mentioned = any(x in text_lower for x in ["@bot", "@jingdong", "@jdl"])
                     is_reply_to_bot = bool(msg.get("reply_to_message"))
-                    has_command = any(c in text_lower for c in ["order", "don hang", "backlog", "packing", "dong goi", "etc", "clear", "ping", "test"])
+                    has_command = any(c in text_lower for c in [
+                        "order", "don hang", "backlog", "packing", "dong goi", "etc", "clear", "ping", "test",
+                        "bảng sản lượng", "bang san luong", "sản lượng nhân sự", "san luong nhan su",
+                        "sản lượng nhân viên", "san luong nhan vien"
+                    ])
 
                     # Trong nhóm chat: chỉ xử lý nếu được tag tên, được reply tin bot, hoặc chứa lệnh trực tiếp
                     if is_group and not (is_mentioned or is_reply_to_bot or has_command):
                         continue
 
+                    # 0. Ưu tiên nhận diện câu hỏi tự nhiên về sản lượng nhân sự (Pick / Pack / Put Away / Receiving) theo ngày & khung giờ
+                    prod_params = zalo_notifier.parse_productivity_query(raw_text)
+                    if prod_params:
+                        print(f"  📊 Xử lý truy vấn sản lượng nhân sự ({prod_params['stages']} | {prod_params['time_label']} {prod_params['target_date']})...", flush=True)
+                        ok, result_info = zalo_notifier.handle_productivity_query(raw_text, target_chat_id=chat_id)
+                        print(f"  ✅ Kết quả sản lượng nhân sự: {ok} - {result_info}", flush=True)
+                        if not ok:
+                            requests.post(url_send, json={"chat_id": chat_id, "text": f"⚠️ Không thể tra cứu sản lượng nhân sự: {result_info}"}, headers={"Content-Type": "application/json"}, timeout=10)
+
                     # 1. Lệnh order (Đơn hàng khách đổ xuống hệ thống)
-                    if "order" in text_lower or "don hang" in text_lower:
+                    elif "order" in text_lower or "don hang" in text_lower:
                         print(f"  ⚡ Xử lý lệnh order cho chat {chat_id}...", flush=True)
                         ok, result_info = zalo_notifier.handle_order_command(target_chat_id=chat_id)
                         print(f"  ✅ Kết quả order: {ok} - {result_info}", flush=True)
@@ -397,7 +410,8 @@ def start_bot_listener(stop_event: threading.Event = None):
                             f"- order : Xem tổng đơn nhận khách đổ xuống hôm nay (phân loại B2B vs B2C)\n"
                             f"- backlog : Xem danh sách đơn hàng sắp quá hạn SLA (Khách hàng -> Time remaining)\n"
                             f"- packing : Xem tiến độ đóng gói hôm nay (phân loại B2B vs B2C)\n"
-                            f"- etc / clear : Dự báo thời gian hoàn thành (Clear Time) dựa trên tốc độ đóng gói thực tế"
+                            f"- etc / clear : Dự báo thời gian hoàn thành (Clear Time) dựa trên tốc độ đóng gói thực tế\n"
+                            f"- Hỏi tự nhiên sản lượng nhân sự: VD 'cho tôi bảng sản lượng nhân sự pick và pack từ 17h đến 17h30 ngày 17/11'"
                         )
                         requests.post(url_send, json={"chat_id": chat_id, "text": ping_reply}, headers={"Content-Type": "application/json"}, timeout=10)
 

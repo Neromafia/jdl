@@ -956,3 +956,427 @@ def scan_and_alert_backlog_sla(
             "message": f"Không thể gửi tin Zalo: {last_err}",
             "count": total_risk
         }
+
+
+def parse_productivity_query(raw_text: str, now_vn: datetime.datetime = None) -> dict | None:
+    """
+    Nhận diện và trích xuất tham số từ câu hỏi tự nhiên tiếng Việt về sản lượng nhân sự
+    (Pick / Pack / Put Away / Receiving) theo ngày và khung giờ bất kỳ.
+    Trả về dict tham số nếu khớp ý định hỏi sản lượng nhân sự / theo khung giờ, ngược lại trả về None.
+    """
+    if not raw_text:
+        return None
+    if now_vn is None:
+        now_vn = datetime.datetime.now(VN_TZ).replace(tzinfo=None)
+
+    # Xóa mention @Bot ... để tránh nhiễu
+    clean = re.sub(r'@\S+', ' ', raw_text).strip()
+    clean = re.sub(r'\bjingdong\s*logistics\b', ' ', clean, flags=re.IGNORECASE).strip()
+    text_lower = re.sub(r'\s+', ' ', clean.lower()).strip()
+
+    # Bỏ qua các lệnh đơn giản quen thuộc
+    if text_lower in ["packing", "/packing", "dong goi", "backlog", "/backlog", "order", "/order", "etc", "clear", "ping", "test"]:
+        return None
+
+    # Nếu câu hỏi là hẹn giờ nhắc nhở thì không chặn
+    if any(k in text_lower for k in ["nhắc", "kêu mình", "báo thức", "đánh thức"]):
+        return None
+
+    # 1. Xác định các khâu được nhắc tới
+    has_pick = bool(re.search(r'\bpick(?:ing)?\b|lấy hàng|lay hang|nhặt hàng|nhat hang', text_lower))
+    has_pack = bool(re.search(r'\bpack(?:ing)?\b|đóng gói|dong goi', text_lower))
+    has_putaway = bool(re.search(r'put\s*away|lên kệ|len ke', text_lower))
+    has_recv = bool(re.search(r'receiv(?:ing)?|nghiệm thu|nghiem thu|nhập hàng|nhap hang', text_lower))
+    has_any_stage = has_pick or has_pack or has_putaway or has_recv
+
+    # 2. Từ khóa chỉ báo hỏi về nhân sự / bảng sản lượng / hiệu suất
+    worker_prod_kws = [
+        "nhân sự", "nhan su", "nhân viên", "nhan vien", "nhân công", "nhan cong",
+        "sản lượng", "san luong", "năng suất", "nang suat", "hiệu suất", "hieu suat",
+        "bảng sản lượng", "bang san luong", "từng người", "tung nguoi", "mỗi người", "moi nguoi",
+        "ai pick", "ai pack", "ai đóng", "ai lấy", "top pick", "top pack", "top nhân", "top nhan",
+        "picker", "packer", "theo nhân", "theo nhan", "của nhân", "cua nhan"
+    ]
+    has_worker_prod = any(k in text_lower for k in worker_prod_kws)
+
+    # 3. Trích xuất KHUNG GIỜ trước (để tránh chuỗi '17:00-17:30' gây nhiễu regex ngày '00-17')
+    start_time = datetime.time(0, 0, 0)
+    end_time = datetime.time(23, 59, 59)
+    has_time_range = False
+    time_label = "Cả ngày"
+    date_text = text_lower
+
+    m_range = re.search(
+        r'(?:t[ừu]\s*)?(\d{1,2})\s*(?:h|g|gi[ờo]|:)\s*(\d{1,2})?\s*(?:p|ph[úu]t)?\s*'
+        r'(?:đ[ếe]n|den|t[ớo]i|toi|-|–|~)\s*'
+        r'(\d{1,2})\s*(?:h|g|gi[ờo]|:)\s*(\d{1,2})?\s*(?:p|ph[úu]t)?',
+        text_lower
+    )
+    if m_range:
+        sh, sm = int(m_range.group(1)), int(m_range.group(2) or 0)
+        eh, em = int(m_range.group(3)), int(m_range.group(4) or 0)
+        if 0 <= sh <= 23 and 0 <= sm <= 59 and 0 <= eh <= 23 and 0 <= em <= 59:
+            start_time = datetime.time(sh, sm, 0)
+            end_time = datetime.time(eh, em, 0)
+            has_time_range = True
+            time_label = f"{sh:02d}:{sm:02d} - {eh:02d}:{em:02d}"
+            date_text = text_lower[:m_range.start()] + " " + text_lower[m_range.end():]
+    else:
+        m_single_h = re.search(r'(?:l[úu]c|khung|gi[ờo]|trong\s+khung)\s*(\d{1,2})\s*(?:h|g|gi[ờo])(?:\s*(\d{1,2}))?', text_lower)
+        if m_single_h:
+            sh = int(m_single_h.group(1))
+            if 0 <= sh <= 23:
+                start_time = datetime.time(sh, 0, 0)
+                end_time = datetime.time(sh, 59, 59)
+                has_time_range = True
+                time_label = f"{sh:02d}:00 - {sh:02d}:59"
+                date_text = text_lower[:m_single_h.start()] + " " + text_lower[m_single_h.end():]
+        elif any(k in text_lower for k in ["buổi sáng", "buoi sang", "sáng nay", "sang nay", "sáng qua", "sang qua", "ca sáng", "ca sang"]):
+            start_time = datetime.time(7, 0, 0)
+            end_time = datetime.time(12, 0, 0)
+            has_time_range = True
+            time_label = "07:00 - 12:00 (Sáng)"
+        elif any(k in text_lower for k in ["buổi chiều", "buoi chieu", "chiều nay", "chieu nay", "chiều qua", "chieu qua", "ca chiều", "ca chieu"]):
+            start_time = datetime.time(12, 0, 0)
+            end_time = datetime.time(18, 0, 0)
+            has_time_range = True
+            time_label = "12:00 - 18:00 (Chiều)"
+        elif any(k in text_lower for k in ["buổi tối", "buoi toi", "tối nay", "toi nay", "tối qua", "toi qua", "ca tối", "ca toi"]):
+            start_time = datetime.time(18, 0, 0)
+            end_time = datetime.time(23, 59, 59)
+            has_time_range = True
+            time_label = "18:00 - 23:59 (Tối)"
+
+    # 4. Trích xuất NGÀY từ date_text (đã loại bỏ chuỗi giờ)
+    today = now_vn.date()
+    target_date = today
+    has_explicit_date = False
+
+    m_iso = re.search(r'\b(20\d{2})[-/](\d{1,2})[-/](\d{1,2})\b', date_text)
+    if m_iso:
+        try:
+            target_date = datetime.date(int(m_iso.group(1)), int(m_iso.group(2)), int(m_iso.group(3)))
+            has_explicit_date = True
+        except ValueError:
+            pass
+
+    if not has_explicit_date:
+        m_dmy = re.search(r'(?<!:)\b(\d{1,2})[-/](\d{1,2})(?:[-/](20\d{2}|\d{2}))?\b(?!:)', date_text)
+        if m_dmy:
+            d, mo = int(m_dmy.group(1)), int(m_dmy.group(2))
+            yr_raw = m_dmy.group(3)
+            yr = (2000 + int(yr_raw)) if (yr_raw and len(yr_raw) == 2) else (int(yr_raw) if yr_raw else today.year)
+            try:
+                cand = datetime.date(yr, mo, d)
+                if not yr_raw and (cand - today).days > 7:
+                    cand = datetime.date(yr - 1, mo, d)
+                target_date = cand
+                has_explicit_date = True
+            except ValueError:
+                pass
+
+    if not has_explicit_date:
+        m_vn_dm = re.search(r'ng[àa]y\s*(\d{1,2})\s*th[áa]ng\s*(\d{1,2})(?:\s*n[ăa]m\s*(20\d{2}))?', date_text)
+        if m_vn_dm:
+            d, mo = int(m_vn_dm.group(1)), int(m_vn_dm.group(2))
+            yr = int(m_vn_dm.group(3)) if m_vn_dm.group(3) else today.year
+            try:
+                cand = datetime.date(yr, mo, d)
+                if not m_vn_dm.group(3) and (cand - today).days > 7:
+                    cand = datetime.date(yr - 1, mo, d)
+                target_date = cand
+                has_explicit_date = True
+            except ValueError:
+                pass
+
+    if not has_explicit_date:
+        if any(k in date_text for k in ["hôm kia", "hom kia"]):
+            target_date = today - datetime.timedelta(days=2)
+            has_explicit_date = True
+        elif any(k in date_text for k in ["hôm qua", "hom qua", "ngày qua", "ngay qua", "chiều qua", "chieu qua", "sáng qua", "sang qua", "tối qua", "toi qua", "hôm trước", "hom truoc"]):
+            target_date = today - datetime.timedelta(days=1)
+            has_explicit_date = True
+        else:
+            m_vn_d = re.search(r'ng[àa]y\s*(\d{1,2})\b', date_text)
+            if m_vn_d:
+                d = int(m_vn_d.group(1))
+                try:
+                    target_date = datetime.date(today.year, today.month, d)
+                    has_explicit_date = True
+                except ValueError:
+                    pass
+
+    # 5. Điều kiện kích hoạt để không bắt nhầm tin nhắn thông thường hay lệnh 'packing' mặc định
+    is_past_date = has_explicit_date and (target_date != today)
+    should_trigger = (
+        (has_worker_prod and (has_any_stage or has_time_range or has_explicit_date))
+        or (has_pick and has_pack)
+        or (has_pick and (has_time_range or has_explicit_date or has_worker_prod))
+        or (has_pack and (has_time_range or is_past_date or has_worker_prod))
+        or ((has_putaway or has_recv) and has_worker_prod)
+    )
+    if not should_trigger:
+        return None
+
+    stages = []
+    if has_pick:
+        stages.append("PICK")
+    if has_pack:
+        stages.append("PACK")
+    if has_putaway:
+        stages.append("PUTAWAY")
+    if has_recv:
+        stages.append("RECEIVING")
+    if not stages:
+        stages = ["PICK", "PACK"]
+
+    # Trích xuất Top N nếu có (VD: "top 5", "top 10")
+    top_n = None
+    m_top = re.search(r'\btop\s*(\d{1,2})\b', text_lower)
+    if m_top:
+        top_n = max(1, int(m_top.group(1)))
+
+    start_dt = datetime.datetime.combine(target_date, start_time)
+    end_dt = datetime.datetime.combine(target_date, end_time)
+
+    return {
+        "stages": stages,
+        "target_date": target_date,
+        "start_dt": start_dt,
+        "end_dt": end_dt,
+        "time_label": time_label,
+        "has_time_range": has_time_range,
+        "top_n": top_n,
+    }
+
+
+def _split_zalo_lines(lines: list[str], header_prefix: str, max_chars: int = 1800) -> list[str]:
+    """Tự động chia danh sách dòng thành các tin nhắn Zalo <= max_chars ký tự."""
+    messages = []
+    cur = []
+    cur_len = 0
+    for ln in lines:
+        add_len = len(ln) + 1
+        if cur and (cur_len + add_len > max_chars):
+            messages.append("\n".join(cur))
+            cur = [f"{header_prefix} (tiếp)", ln]
+            cur_len = len(cur[0]) + add_len
+        else:
+            cur.append(ln)
+            cur_len += add_len
+    if cur:
+        messages.append("\n".join(cur))
+    return messages
+
+
+def query_worker_productivity_report(params: dict) -> list[str]:
+    """
+    Truy vấn BigQuery thống kê sản lượng theo từng nhân sự cho các khâu được yêu cầu
+    (PICK / PACK / PUTAWAY / RECEIVING) đúng ngày & khung giờ.
+    """
+    client = get_bigquery_client()
+    stages = params["stages"]
+    start_str = params["start_dt"].strftime("%Y-%m-%d %H:%M:%S")
+    end_str = params["end_dt"].strftime("%Y-%m-%d %H:%M:%S")
+    date_display = params["target_date"].strftime("%d/%m/%Y")
+    time_label = params["time_label"]
+    top_n = params.get("top_n")
+
+    stage_title = " & ".join(stages)
+    header = f"[SẢN LƯỢNG NHÂN SỰ {stage_title} - KHO JDL]"
+    lines = [
+        header,
+        f"Thời gian: {time_label} ngày {date_display}",
+    ]
+    if top_n:
+        lines.append(f"(Hiển thị Top {top_n} nhân sự mỗi khâu)")
+
+    sec_idx = 0
+
+    # 1. PICKING
+    if "PICK" in stages:
+        sec_idx += 1
+        sql_pick = f"""
+        SELECT
+            TRIM(REGEXP_REPLACE(
+                COALESCE(NULLIF(TRIM(worker_name), ''), NULLIF(TRIM(worker_email), ''), NULLIF(TRIM(worker_id), ''), 'Không rõ'),
+                r'\\s+', ' '
+            )) AS worker,
+            COUNT(DISTINCT order_no) AS orders,
+            SUM(SAFE_CAST(actual_qty AS INT64)) AS pcs,
+            COUNT(*) AS tasks
+        FROM `jingdong-505914.wms_data.fact_picking`
+        WHERE COALESCE(end_time, start_time) >= DATETIME '{start_str}'
+          AND COALESCE(end_time, start_time) <= DATETIME '{end_str}'
+        GROUP BY worker
+        ORDER BY pcs DESC, orders DESC
+        """
+        sql_pick_tot = f"""
+        SELECT
+            COUNT(DISTINCT order_no) AS orders,
+            SUM(SAFE_CAST(actual_qty AS INT64)) AS pcs,
+            COUNT(*) AS tasks
+        FROM `jingdong-505914.wms_data.fact_picking`
+        WHERE COALESCE(end_time, start_time) >= DATETIME '{start_str}'
+          AND COALESCE(end_time, start_time) <= DATETIME '{end_str}'
+        """
+        df_p = client.query(sql_pick).to_dataframe()
+        df_pt = client.query(sql_pick_tot).to_dataframe()
+
+        lines.append("")
+        if df_p.empty or int(df_pt['tasks'].iloc[0] or 0) == 0:
+            lines.append(f"{sec_idx}. NHÂN SỰ PICKING: Chưa có dữ liệu trong khung giờ này.")
+        else:
+            tot_o = int(df_pt['orders'].iloc[0] or 0)
+            tot_pcs = int(df_pt['pcs'].iloc[0] or 0)
+            tot_t = int(df_pt['tasks'].iloc[0] or 0)
+            lines.append(f"{sec_idx}. NHÂN SỰ PICKING ({len(df_p)} người | Tổng: {tot_o:,} đơn - {tot_pcs:,} pcs - {tot_t:,} lượt)")
+            df_show = df_p.head(top_n) if top_n else df_p
+            for i, (_, r) in enumerate(df_show.iterrows(), 1):
+                lines.append(f"  {i}. {r['worker']}: {int(r['orders']):,} đơn ({int(r['pcs'] or 0):,} pcs)")
+
+    # 2. PACKING (tự động map tên Tiếng Việt từ fact_picking qua email nếu có)
+    if "PACK" in stages:
+        sec_idx += 1
+        sql_pack = f"""
+        WITH staff_map AS (
+            SELECT
+                LOWER(TRIM(worker_email)) AS key_email,
+                ANY_VALUE(TRIM(REGEXP_REPLACE(worker_name, r'\\s+', ' '))) AS vn_name
+            FROM `jingdong-505914.wms_data.fact_picking`
+            WHERE worker_name IS NOT NULL AND TRIM(worker_name) != ''
+              AND worker_email IS NOT NULL AND TRIM(worker_email) != ''
+            GROUP BY key_email
+        ),
+        pack_agg AS (
+            SELECT
+                TRIM(worker_name) AS raw_worker,
+                COUNT(DISTINCT order_no) AS orders,
+                SUM(SAFE_CAST(packing_qty AS INT64)) AS pcs
+            FROM `jingdong-505914.wms_data.fact_packing`
+            WHERE pack_time >= DATETIME '{start_str}'
+              AND pack_time <= DATETIME '{end_str}'
+            GROUP BY raw_worker
+        )
+        SELECT
+            COALESCE(m.vn_name, REPLACE(p.raw_worker, '+', ' '), 'Không rõ') AS worker,
+            p.orders,
+            p.pcs
+        FROM pack_agg p
+        LEFT JOIN staff_map m ON LOWER(p.raw_worker) = m.key_email
+        ORDER BY p.orders DESC, p.pcs DESC
+        """
+        sql_pack_tot = f"""
+        SELECT
+            COUNT(DISTINCT order_no) AS orders,
+            SUM(SAFE_CAST(packing_qty AS INT64)) AS pcs
+        FROM `jingdong-505914.wms_data.fact_packing`
+        WHERE pack_time >= DATETIME '{start_str}'
+          AND pack_time <= DATETIME '{end_str}'
+        """
+        df_k = client.query(sql_pack).to_dataframe()
+        df_kt = client.query(sql_pack_tot).to_dataframe()
+
+        lines.append("")
+        if df_k.empty or int(df_kt['orders'].iloc[0] or 0) == 0:
+            lines.append(f"{sec_idx}. NHÂN SỰ PACKING: Chưa có dữ liệu trong khung giờ này.")
+        else:
+            tot_o = int(df_kt['orders'].iloc[0] or 0)
+            tot_pcs = int(df_kt['pcs'].iloc[0] or 0)
+            lines.append(f"{sec_idx}. NHÂN SỰ PACKING ({len(df_k)} người | Tổng: {tot_o:,} đơn - {tot_pcs:,} pcs)")
+            df_show = df_k.head(top_n) if top_n else df_k
+            for i, (_, r) in enumerate(df_show.iterrows(), 1):
+                lines.append(f"  {i}. {r['worker']}: {int(r['orders']):,} đơn ({int(r['pcs'] or 0):,} pcs)")
+
+    # 3. PUTAWAY (nếu có hỏi)
+    if "PUTAWAY" in stages:
+        sec_idx += 1
+        sql_pa = f"""
+        SELECT
+            COALESCE(NULLIF(TRIM(worker_id), ''), 'Không rõ') AS worker,
+            COUNT(DISTINCT order_no) AS orders,
+            SUM(SAFE_CAST(putaway_qty AS INT64)) AS pcs
+        FROM `jingdong-505914.wms_data.fact_putaway`
+        WHERE putaway_time >= DATETIME '{start_str}'
+          AND putaway_time <= DATETIME '{end_str}'
+        GROUP BY worker
+        ORDER BY pcs DESC, orders DESC
+        """
+        df_pa = client.query(sql_pa).to_dataframe()
+        lines.append("")
+        if df_pa.empty:
+            lines.append(f"{sec_idx}. NHÂN SỰ PUT AWAY: Chưa có dữ liệu trong khung giờ này.")
+        else:
+            lines.append(f"{sec_idx}. NHÂN SỰ PUT AWAY ({len(df_pa)} người | Tổng: {int(df_pa['pcs'].sum() or 0):,} pcs)")
+            df_show = df_pa.head(top_n) if top_n else df_pa
+            for i, (_, r) in enumerate(df_show.iterrows(), 1):
+                lines.append(f"  {i}. {r['worker']}: {int(r['orders']):,} đơn ({int(r['pcs'] or 0):,} pcs)")
+
+    # 4. RECEIVING (nếu có hỏi)
+    if "RECEIVING" in stages:
+        sec_idx += 1
+        sql_rv = f"""
+        SELECT
+            COALESCE(NULLIF(TRIM(worker_id), ''), 'Không rõ') AS worker,
+            COUNT(DISTINCT order_no) AS orders,
+            SUM(SAFE_CAST(receiving_qty AS INT64)) AS pcs
+        FROM `jingdong-505914.wms_data.fact_receiving`
+        WHERE receiving_time >= DATETIME '{start_str}'
+          AND receiving_time <= DATETIME '{end_str}'
+        GROUP BY worker
+        ORDER BY pcs DESC, orders DESC
+        """
+        df_rv = client.query(sql_rv).to_dataframe()
+        lines.append("")
+        if df_rv.empty:
+            lines.append(f"{sec_idx}. NHÂN SỰ RECEIVING: Chưa có dữ liệu trong khung giờ này.")
+        else:
+            lines.append(f"{sec_idx}. NHÂN SỰ RECEIVING ({len(df_rv)} người | Tổng: {int(df_rv['pcs'].sum() or 0):,} pcs)")
+            df_show = df_rv.head(top_n) if top_n else df_rv
+            for i, (_, r) in enumerate(df_show.iterrows(), 1):
+                lines.append(f"  {i}. {r['worker']}: {int(r['orders']):,} đơn ({int(r['pcs'] or 0):,} pcs)")
+
+    return _split_zalo_lines(lines, header_prefix=header, max_chars=1800)
+
+
+def handle_productivity_query(raw_text: str, target_chat_id: str = None, dry_run: bool = False) -> tuple[bool, str | list[str]]:
+    """
+    Xử lý câu hỏi tự nhiên về sản lượng nhân sự theo ngày/giờ và gửi kết quả vào Zalo.
+    Nếu dry_run=True thì chỉ trả về danh sách tin nhắn (KHÔNG gửi Zalo).
+    """
+    params = parse_productivity_query(raw_text)
+    if not params:
+        return False, "Không nhận diện được yêu cầu tra cứu sản lượng nhân sự."
+
+    try:
+        messages = query_worker_productivity_report(params)
+    except Exception as e:
+        return False, f"Lỗi truy vấn BigQuery sản lượng nhân sự: {e}"
+
+    if dry_run:
+        return True, messages
+
+    cfg = get_zalo_config()
+    chat_id = target_chat_id or cfg.get("chat_id")
+    if not chat_id:
+        return False, "Chưa xác định được chat_id nhóm Zalo."
+
+    all_ok = True
+    last_err = ""
+    for msg in messages:
+        if cfg.get("bot_token") and chat_id:
+            url = f"https://bot-api.zaloplatforms.com/bot{cfg['bot_token']}/sendMessage"
+            res = requests.post(url, json={"chat_id": chat_id, "text": msg}, headers={"Content-Type": "application/json"}, timeout=15)
+            if res.status_code != 200:
+                all_ok = False
+                last_err = f"Lỗi Zalo API [{res.status_code}]: {res.text}"
+        else:
+            ok, err = send_zalo_message(msg, target_chat_id=chat_id)
+            if not ok:
+                all_ok = False
+                last_err = err
+        time.sleep(0.4)
+
+    if all_ok:
+        return True, f"Đã gửi bảng sản lượng nhân sự ({len(messages)} tin) vào Zalo thành công."
+    return False, f"Không thể gửi tin Zalo: {last_err}"

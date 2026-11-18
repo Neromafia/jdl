@@ -373,6 +373,10 @@ def transform_df_for_stage(df_in, stage_cfg, bq_client):
         else:
             df["received_time"] = df["received_time"].fillna(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
+    if stage_cfg["folder_name"] == "PICKING":
+        if ("start_time" not in df.columns or df["start_time"].isnull().all()) and "end_time" in df.columns:
+            df["start_time"] = df["end_time"]
+
     if stage_cfg["folder_name"] == "ORDER":
         if "order_date" in df.columns:
             df["order_date"] = pd.to_datetime(df["order_date"], errors="coerce")
@@ -404,6 +408,7 @@ def sync_folder(cfg, drive_svc, bq_client, processed_map, is_full_sync, dry_run,
             results = drive_svc.files().list(
                 q=f"'{cfg['folder_id']}' in parents and trashed=false",
                 fields="files(id,name,modifiedTime)",
+                orderBy="modifiedTime desc",
                 supportsAllDrives=True,
                 includeItemsFromAllDrives=True,
                 pageSize=200,
