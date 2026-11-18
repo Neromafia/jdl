@@ -351,7 +351,8 @@ def start_bot_listener(stop_event: threading.Event = None):
                     is_mentioned = any(x in text_lower for x in ["@bot", "@jingdong", "@jdl"])
                     is_reply_to_bot = bool(msg.get("reply_to_message"))
                     ot_params = zalo_notifier.parse_ot_query(raw_text)
-                    has_command = bool(ot_params) or any(c in text_lower for c in [
+                    pop_mat_params = zalo_notifier.parse_pop_material_query(raw_text)
+                    has_command = bool(ot_params) or bool(pop_mat_params) or any(c in text_lower for c in [
                         "order", "don hang", "backlog", "packing", "dong goi", "etc", "clear", "ping", "test",
                         "bảng sản lượng", "bang san luong", "sản lượng nhân sự", "san luong nhan su",
                         "sản lượng nhân viên", "san luong nhan vien"
@@ -361,15 +362,23 @@ def start_bot_listener(stop_event: threading.Event = None):
                     if is_group and not (is_mentioned or is_reply_to_bot or has_command):
                         continue
 
-                    # 0a. Ưu tiên nhận diện câu lệnh tra cứu giờ công & OT (VD: @bot OT ngày 17/11, từ 1/11 đến 17/11, tháng 11)
-                    if ot_params:
+                    # 0a. Ưu tiên nhận diện câu lệnh tra cứu vật tư đóng gói Pop Mart (VD: @bot vật tư pop ngày 17/11)
+                    if pop_mat_params:
+                        print(f"  📦 Xử lý truy vấn vật tư Pop Mart ({pop_mat_params['label']})...", flush=True)
+                        ok, result_info = zalo_notifier.handle_pop_material_query(raw_text, target_chat_id=chat_id)
+                        print(f"  ✅ Kết quả vật tư Pop Mart: {ok} - {result_info}", flush=True)
+                        if not ok:
+                            requests.post(url_send, json={"chat_id": chat_id, "text": f"⚠️ Không thể tra cứu vật tư Pop Mart: {result_info}"}, headers={"Content-Type": "application/json"}, timeout=10)
+
+                    # 0b. Nhận diện câu lệnh tra cứu giờ công & OT (VD: @bot OT ngày 17/11, từ 1/11 đến 17/11, tháng 11)
+                    elif ot_params:
                         print(f"  🕒 Xử lý truy vấn OT ({ot_params['label']})...", flush=True)
                         ok, result_info = zalo_notifier.handle_ot_query(raw_text, target_chat_id=chat_id)
                         print(f"  ✅ Kết quả OT: {ok} - {result_info}", flush=True)
                         if not ok:
                             requests.post(url_send, json={"chat_id": chat_id, "text": f"⚠️ Không thể tra cứu giờ công/OT: {result_info}"}, headers={"Content-Type": "application/json"}, timeout=10)
 
-                    # 0b. Nhận diện câu hỏi tự nhiên về sản lượng nhân sự (Pick / Pack / Put Away / Receiving) theo ngày & khung giờ
+                    # 0c. Nhận diện câu hỏi tự nhiên về sản lượng nhân sự (Pick / Pack / Put Away / Receiving) theo ngày & khung giờ
                     elif (prod_params := zalo_notifier.parse_productivity_query(raw_text)):
                         print(f"  📊 Xử lý truy vấn sản lượng nhân sự ({prod_params['stages']} | {prod_params['time_label']} {prod_params['target_date']})...", flush=True)
                         ok, result_info = zalo_notifier.handle_productivity_query(raw_text, target_chat_id=chat_id)
@@ -420,6 +429,7 @@ def start_bot_listener(stop_event: threading.Event = None):
                             f"- packing : Xem tiến độ đóng gói hôm nay (phân loại B2B vs B2C)\n"
                             f"- etc / clear : Dự báo thời gian hoàn thành (Clear Time) dựa trên tốc độ đóng gói thực tế\n"
                             f"- OT : Tra cứu giờ công, OT (>8h) & lỗi nghiêm trọng (VD: '@bot OT ngày 17/11', '@bot OT từ 1/11 đến 17/11', '@bot OT tháng 11')\n"
+                            f"- Vật tư Pop Mart : Tra cứu vật tư đề xuất vs thực tế (VD: '@bot vật tư pop ngày 17/11', '@bot vật tư pop 16 17 tháng 11', '@bot vật tư pop tháng 11')\n"
                             f"- Hỏi tự nhiên sản lượng nhân sự: VD 'cho tôi bảng sản lượng nhân sự pick và pack từ 17h đến 17h30 ngày 17/11'"
                         )
                         requests.post(url_send, json={"chat_id": chat_id, "text": ping_reply}, headers={"Content-Type": "application/json"}, timeout=10)

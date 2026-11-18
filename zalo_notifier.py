@@ -1813,37 +1813,20 @@ def _classify_serious_ot_exception(exc_type: str) -> str | None:
     return None
 
 
-def parse_ot_query(raw_text: str, now_vn: datetime.datetime = None) -> dict | None:
+def _parse_vn_date_filter(text_lower: str, now_vn: datetime.datetime = None) -> dict:
     """
-    Nhận diện câu lệnh/câu hỏi tự nhiên về OT & giờ công nhân sự, ví dụ:
-      - '@bot OT ngày 17/11'
-      - '@bot OT từ ngày 1/11 đến 17/11'
-      - '@bot OT tháng 11'
-      - '@bot OT hôm qua' / '@bot OT tuần trước' / '@bot OT'
-    Trả về dict {start_date, end_date, label, is_latest} hoặc None nếu không phải lệnh OT.
+    Bộ trích xuất mốc ngày / khoảng ngày / nhiều ngày rời rạc / tháng / tuần bằng tiếng Việt:
+      - 'từ ngày 1/11 đến 17/11', '1/11 - 17/11', '16-17 tháng 11'
+      - '16 17 tháng 11', 'ngày 16 và 17 tháng 11', '15/11, 17/11'
+      - 'tháng 11', 'tháng này', 'tháng trước', 'tuần này', 'tuần trước'
+      - 'hôm nay', 'hôm qua', 'hôm kia', 'ngày 17/11', 'ngày 17 tháng 11', 'ngày 17'
+      - Không ghi ngày -> is_latest=True (mặc định ngày mới nhất có dữ liệu).
     """
     import calendar
-
-    if not raw_text or not raw_text.strip():
-        return None
 
     if now_vn is None:
         now_vn = datetime.datetime.now(VN_TZ).replace(tzinfo=None)
     today = now_vn.date()
-
-    # Bỏ các tag @bot / @jingdong / @jdl trước khi kiểm tra từ khóa OT để không bắt nhầm
-    cleaned = re.sub(r'@\S+', ' ', raw_text).strip()
-    text_lower = re.sub(r'\s+', ' ', cleaned.lower()).strip()
-    if not text_lower:
-        return None
-
-    # Chỉ kích hoạt khi có từ đứng riêng 'ot' / '/ot' hoặc 'tăng ca' / 'giờ công'
-    has_ot_kw = bool(
-        re.search(r'(?:^|\s)/?ot(?:\s|$|[,.:;?!])', text_lower)
-        or any(k in text_lower for k in ["tăng ca", "tang ca", "giờ công", "gio cong"])
-    )
-    if not has_ot_kw:
-        return None
 
     def _norm_year(y_str):
         if not y_str:
@@ -1868,7 +1851,7 @@ def parse_ot_query(raw_text: str, now_vn: datetime.datetime = None) -> dict | No
             if sd > ed:
                 sd, ed = ed, sd
             lbl = f"{sd.strftime('%d/%m/%Y')} - {ed.strftime('%d/%m/%Y')}"
-            return {"start_date": sd, "end_date": ed, "label": lbl, "is_latest": False}
+            return {"start_date": sd, "end_date": ed, "dates": None, "label": lbl, "is_latest": False}
         except ValueError:
             pass
 
@@ -2025,8 +2008,35 @@ def parse_ot_query(raw_text: str, now_vn: datetime.datetime = None) -> dict | No
                 "is_latest": False,
             }
 
-    # 6. Chỉ gõ "@bot OT" -> tự động lấy ngày mới nhất có trong bảng fact_work_hours
+    # 6. Không ghi ngày cụ thể -> tự động lấy ngày mới nhất có dữ liệu
     return {"start_date": None, "end_date": None, "dates": None, "label": "Ngày mới nhất", "is_latest": True}
+
+
+def parse_ot_query(raw_text: str, now_vn: datetime.datetime = None) -> dict | None:
+    """
+    Nhận diện câu lệnh/câu hỏi tự nhiên về OT & giờ công nhân sự, ví dụ:
+      - '@bot OT ngày 17/11'
+      - '@bot OT từ ngày 1/11 đến 17/11'
+      - '@bot OT tháng 11'
+      - 'giờ công 16 17 tháng 11'
+    Trả về dict {start_date, end_date, dates, label, is_latest} hoặc None nếu không phải lệnh OT.
+    """
+    if not raw_text or not raw_text.strip():
+        return None
+
+    cleaned = re.sub(r'@\S+', ' ', raw_text).strip()
+    text_lower = re.sub(r'\s+', ' ', cleaned.lower()).strip()
+    if not text_lower:
+        return None
+
+    has_ot_kw = bool(
+        re.search(r'(?:^|\s)/?ot(?:\s|$|[,.:;?!])', text_lower)
+        or any(k in text_lower for k in ["tăng ca", "tang ca", "giờ công", "gio cong"])
+    )
+    if not has_ot_kw:
+        return None
+
+    return _parse_vn_date_filter(text_lower, now_vn=now_vn)
 
 
 def format_ot_report(df: pd.DataFrame, period_label: str, is_single_day: bool = True) -> list[str]:
@@ -2225,3 +2235,282 @@ def handle_ot_query(raw_text: str, target_chat_id: str = None, dry_run: bool = F
     if all_ok:
         return True, f"Đã gửi báo cáo giờ công & OT ({len(messages)} tin) vào Zalo thành công."
     return False, f"Không thể gửi tin Zalo báo cáo OT: {last_err}"
+
+
+# ==============================================================================
+# TRA CỨU VẬT TƯ ĐÓNG GÓI - POP MART (ĐỀ XUẤT VS THỰC TẾ)
+# Lệnh: "@bot vật tư pop ngày 17/11", "@bot vật tư pop từ 1/11 đến 17/11",
+#       "@bot vật tư pop 16 17 tháng 11", "@bot vật tư pop tháng 11",...
+# ==============================================================================
+
+def parse_pop_material_query(raw_text: str, now_vn: datetime.datetime = None) -> dict | None:
+    """
+    Nhận diện câu lệnh tra cứu vật tư đóng gói khách hàng Pop Mart (1 ngày hoặc nhiều ngày).
+    """
+    if not raw_text or not raw_text.strip():
+        return None
+
+    cleaned = re.sub(r'@\S+', ' ', raw_text).strip()
+    text_lower = re.sub(r'\s+', ' ', cleaned.lower()).strip()
+    if not text_lower:
+        return None
+
+    has_mat_kw = any(k in text_lower for k in [
+        "vật tư", "vat tu", "vattu", "consumable", "thùng", "thung", "hộp đóng gói", "hop dong goi", "carton"
+    ])
+    has_pop_kw = bool(
+        re.search(r'(?:^|\s)pop(?:\s|$|[,.:;?!])', text_lower)
+        or "popmart" in text_lower
+        or "pop mart" in text_lower
+    )
+    if not (has_mat_kw and has_pop_kw):
+        return None
+
+    return _parse_vn_date_filter(text_lower, now_vn=now_vn)
+
+
+def _is_pop_material_matched(rec_code: str, rec_name: str, act_code: str, act_name: str) -> bool:
+    """
+    Kiểm tra đơn có đóng đúng vật tư đề xuất không:
+      - Khớp mã vật tư (rec_code == act_code, không phân biệt hoa thường), HOẶC
+      - Trường hợp đặc biệt SIOP: WMS đề xuất rec_code='SIOP' (rec_name trống) và thực tế quét act_code='HC000498' / act_name='SIOP', HOẶC
+      - Khớp tên vật tư (rec_name == act_name khi cả hai không rỗng).
+    """
+    rc = (rec_code or "").strip().upper()
+    rn = (rec_name or "").strip().upper()
+    ac = (act_code or "").strip().upper()
+    an = (act_name or "").strip().upper()
+
+    if not rc or not ac:
+        return False
+    if rc == ac:
+        return True
+    if rc == "SIOP" and (an == "SIOP" or ac == "SIOP"):
+        return True
+    if rn and an and rn == an:
+        return True
+    return False
+
+
+def _fmt_mat_label(code: str, name: str, empty_fallback: str) -> str:
+    c = (code or "").strip()
+    n = (name or "").strip()
+    if not c and not n:
+        return empty_fallback
+    if c and n and c.upper() != n.upper():
+        return f"{c} | {n}"
+    return c or n
+
+
+def format_pop_material_report(df: pd.DataFrame, period_label: str, is_single_day: bool = True) -> list[str]:
+    """
+    Tạo báo cáo vật tư đóng gói Pop Mart (theo đơn hàng duy nhất `order_no`):
+      1. Tổng số đơn đã đóng gói, số đơn được đề xuất vật tư, số đơn đóng đúng đề xuất, số đơn không đóng theo đề xuất.
+      2. Danh sách mã / tên vật tư đề xuất & số đơn + tỉ trọng %.
+      3. Danh sách mã / tên vật tư đóng gói thực tế & số đơn + tỉ trọng %.
+    """
+    header = "[BÁO CÁO VẬT TƯ ĐÓNG GÓI - POP MART]"
+    if df is None or df.empty:
+        return [f"{header}\nNgày: {period_label}\n\nChưa có dữ liệu đóng gói Pop Mart cho khoảng thời gian này."]
+
+    work = df.copy()
+    work["order_no"] = work["order_no"].fillna("").astype(str).str.strip()
+    work = work[work["order_no"] != ""].copy()
+    if work.empty:
+        return [f"{header}\nNgày: {period_label}\n\nChưa có dữ liệu đóng gói Pop Mart cho khoảng thời gian này."]
+
+    for c in ["recommended_material_code", "recommended_material_name", "packing_material_code", "packing_material_name"]:
+        if c not in work.columns:
+            work[c] = ""
+        work[c] = (
+            work[c]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .replace({"nan": "", "None": "", "<NA>": ""})
+        )
+
+    work["_dt"] = pd.to_datetime(work.get("pack_time"), errors="coerce")
+    n_days = int(work["_dt"].dt.date.nunique()) if work["_dt"].notna().any() else 1
+    single_view = is_single_day and (n_days <= 1)
+
+    # Gom về đúng 1 dòng / đơn hàng (order_no), ưu tiên dòng có đủ mã đề xuất & mã thực tế
+    work["_score"] = (
+        (work["recommended_material_code"] != "").astype(int) * 2
+        + (work["packing_material_code"] != "").astype(int)
+    )
+    ord_df = (
+        work.sort_values(by=["_score", "_dt"], ascending=[False, False])
+        .drop_duplicates(subset=["order_no"], keep="first")
+        .copy()
+    )
+
+    total_orders = len(ord_df)
+    ord_df["has_rec"] = ord_df["recommended_material_code"] != ""
+    ord_df["is_matched"] = ord_df.apply(
+        lambda r: _is_pop_material_matched(
+            r["recommended_material_code"],
+            r["recommended_material_name"],
+            r["packing_material_code"],
+            r["packing_material_name"],
+        ),
+        axis=1,
+    )
+
+    rec_df = ord_df[ord_df["has_rec"]].copy()
+    rec_orders = len(rec_df)
+    match_orders = int(rec_df["is_matched"].sum()) if rec_orders > 0 else 0
+    mismatch_orders = rec_orders - match_orders
+    no_rec_orders = total_orders - rec_orders
+
+    rec_rate = (rec_orders / total_orders * 100.0) if total_orders > 0 else 0.0
+    match_rate = (match_orders / rec_orders * 100.0) if rec_orders > 0 else 0.0
+    mismatch_rate = (mismatch_orders / rec_orders * 100.0) if rec_orders > 0 else 0.0
+
+    date_line = f"Ngày: {period_label}" if single_view else f"Ngày: {period_label} ({n_days} ngày có dữ liệu)"
+    lines = [
+        header,
+        date_line,
+        "",
+        "1. TỔNG QUAN",
+        f"- Tổng đơn đã đóng gói: {total_orders:,} đơn",
+        f"- Đơn được đề xuất vật tư: {rec_orders:,} đơn ({rec_rate:.1f}%)",
+        f"- Đóng đúng vật tư đề xuất: {match_orders:,} đơn ({match_rate:.1f}%)",
+        f"- Không đóng theo vật tư đề xuất: {mismatch_orders:,} đơn ({mismatch_rate:.1f}%)",
+    ]
+    if no_rec_orders > 0:
+        lines.append(f"- Chưa có vật tư đề xuất: {no_rec_orders:,} đơn ({no_rec_orders / total_orders * 100.0:.1f}%)")
+
+    # 2. Vật tư được đề xuất
+    lines.append("")
+    lines.append(f"2. VẬT TƯ ĐỀ XUẤT ({rec_orders:,} đơn)")
+    if rec_df.empty:
+        lines.append("- Không có đơn nào có vật tư đề xuất.")
+    else:
+        rec_df["rec_label"] = rec_df.apply(
+            lambda r: _fmt_mat_label(r["recommended_material_code"], r["recommended_material_name"], "Không có mã"),
+            axis=1,
+        )
+        rec_grp = (
+            rec_df.groupby("rec_label", as_index=False)["order_no"]
+            .count()
+            .rename(columns={"order_no": "orders"})
+            .sort_values(by=["orders", "rec_label"], ascending=[False, True])
+        )
+        for _, r in rec_grp.iterrows():
+            pct = (r["orders"] / rec_orders * 100.0) if rec_orders > 0 else 0.0
+            lines.append(f"- {r['rec_label']}: {int(r['orders']):,} đơn ({pct:.1f}%)")
+
+    # 3. Vật tư đóng gói thực tế
+    lines.append("")
+    lines.append(f"3. VẬT TƯ ĐÓNG GÓI THỰC TẾ ({total_orders:,} đơn)")
+    ord_df["act_label"] = ord_df.apply(
+        lambda r: _fmt_mat_label(r["packing_material_code"], r["packing_material_name"], "Không quét vật tư"),
+        axis=1,
+    )
+    act_grp = (
+        ord_df.groupby("act_label", as_index=False)["order_no"]
+        .count()
+        .rename(columns={"order_no": "orders"})
+        .sort_values(by=["orders", "act_label"], ascending=[False, True])
+    )
+    for _, r in act_grp.iterrows():
+        pct = (r["orders"] / total_orders * 100.0) if total_orders > 0 else 0.0
+        lines.append(f"- {r['act_label']}: {int(r['orders']):,} đơn ({pct:.1f}%)")
+
+    return _split_zalo_lines(lines, header_prefix=header, max_chars=1800)
+
+
+def query_pop_material_report(params: dict) -> list[str]:
+    """Truy vấn BigQuery `fact_packing` cho khách hàng Pop Mart theo ngày / khoảng ngày / nhiều ngày."""
+    client = get_bigquery_client()
+
+    start_date = params.get("start_date")
+    end_date = params.get("end_date")
+    dates_list = params.get("dates")
+    label = params.get("label") or ""
+
+    if params.get("is_latest") or (start_date is None and not dates_list):
+        df_max = client.query("""
+            SELECT MAX(DATE(pack_time)) AS max_d
+            FROM `jingdong-505914.wms_data.fact_packing`
+            WHERE UPPER(owner_name) LIKE '%POP%'
+        """).to_dataframe()
+        if df_max.empty or pd.isna(df_max["max_d"].iloc[0]):
+            return ["[BÁO CÁO VẬT TƯ ĐÓNG GÓI - POP MART]\n\nChưa có dữ liệu đóng gói Pop Mart trong hệ thống."]
+        latest_d = pd.to_datetime(df_max["max_d"].iloc[0]).date()
+        start_date = latest_d
+        end_date = latest_d
+        dates_list = None
+        label = latest_d.strftime("%d/%m/%Y")
+
+    if dates_list:
+        in_clause = ", ".join(f"DATE '{d.strftime('%Y-%m-%d')}'" for d in dates_list)
+        where_sql = f"DATE(pack_time) IN ({in_clause})"
+        is_single = (len(dates_list) == 1)
+    else:
+        where_sql = (
+            f"DATE(pack_time) >= DATE '{start_date.strftime('%Y-%m-%d')}' "
+            f"AND DATE(pack_time) <= DATE '{end_date.strftime('%Y-%m-%d')}'"
+        )
+        is_single = (start_date == end_date)
+
+    sql = f"""
+    SELECT
+        order_no,
+        pack_time,
+        recommended_material_code,
+        recommended_material_name,
+        packing_material_code,
+        packing_material_name
+    FROM `jingdong-505914.wms_data.fact_packing`
+    WHERE UPPER(owner_name) LIKE '%POP%'
+      AND {where_sql}
+    """
+    df = client.query(sql).to_dataframe()
+    return format_pop_material_report(df, period_label=label, is_single_day=is_single)
+
+
+def handle_pop_material_query(raw_text: str, target_chat_id: str = None, dry_run: bool = False) -> tuple[bool, str | list[str]]:
+    """Xử lý câu lệnh tra cứu vật tư đóng gói Pop Mart từ Zalo Bot."""
+    params = parse_pop_material_query(raw_text)
+    if not params:
+        return False, "Không nhận diện được yêu cầu tra cứu vật tư Pop Mart."
+
+    try:
+        messages = query_pop_material_report(params)
+    except Exception as e:
+        return False, f"Lỗi truy vấn BigQuery vật tư Pop Mart: {e}"
+
+    if dry_run:
+        return True, messages
+
+    cfg = get_zalo_config()
+    chat_id = target_chat_id or cfg.get("chat_id")
+    if not chat_id:
+        return False, "Chưa xác định được chat_id nhóm Zalo."
+
+    all_ok = True
+    last_err = ""
+    for msg in messages:
+        if cfg.get("bot_token") and chat_id:
+            url = f"https://bot-api.zaloplatforms.com/bot{cfg['bot_token']}/sendMessage"
+            res = requests.post(
+                url,
+                json={"chat_id": chat_id, "text": msg},
+                headers={"Content-Type": "application/json"},
+                timeout=15,
+            )
+            if res.status_code != 200:
+                all_ok = False
+                last_err = f"Lỗi Zalo API [{res.status_code}]: {res.text}"
+        else:
+            ok, err = send_zalo_message(msg, target_chat_id=chat_id)
+            if not ok:
+                all_ok = False
+                last_err = err
+        time.sleep(0.4)
+
+    if all_ok:
+        return True, f"Đã gửi báo cáo vật tư Pop Mart ({len(messages)} tin) vào Zalo thành công."
+    return False, f"Không thể gửi tin Zalo vật tư Pop Mart: {last_err}"
