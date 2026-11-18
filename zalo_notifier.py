@@ -2039,7 +2039,7 @@ def format_ot_report(df: pd.DataFrame, period_label: str, is_single_day: bool = 
     """
     header = "[BÁO CÁO GIỜ CÔNG & OT - KHO JDL]"
     if df is None or df.empty:
-        return [f"{header}\nKỳ báo cáo: {period_label}\n\nChưa có dữ liệu giờ công cho khoảng thời gian này."]
+        return [f"{header}\nNgày: {period_label}\n\nChưa có dữ liệu giờ công cho khoảng thời gian này."]
 
     work = df.copy()
     work["user_code"] = work["user_code"].fillna("").astype(str).str.strip()
@@ -2068,7 +2068,7 @@ def format_ot_report(df: pd.DataFrame, period_label: str, is_single_day: bool = 
     total_ot = float(work["ot_hours"].sum())
     ot_vs_regular_pct = (total_ot / total_regular * 100.0) if total_regular > 0 else 0.0
 
-    period_line = f"Kỳ báo cáo: {period_label}" if single_view else f"Kỳ báo cáo: {period_label} ({n_days} ngày có dữ liệu)"
+    period_line = f"Ngày: {period_label}" if single_view else f"Ngày: {period_label} ({n_days} ngày có dữ liệu)"
     lines = [
         header,
         period_line,
