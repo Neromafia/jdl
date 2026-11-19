@@ -574,16 +574,26 @@ def sync_folder(cfg, drive_svc, bq_client, processed_map, is_full_sync, dry_run,
                 bq_client.query(merge_sql).result()
 
                 # Nếu vừa nạp file PACKING mới: Tự động cập nhật tiến độ đóng gói vào Nhóm Zalo
+                # Chỉ kích hoạt nếu file nạp có phát sinh đơn đóng gói của ngày HÔM NAY (tránh spam khi up lại file cũ)
                 if active_cfg["folder_name"] == "PACKING":
                     try:
                         import zalo_notifier
-                        z_res = zalo_notifier.scan_and_alert_packing_progress(force_send=True)
-                        if z_res.get("status") == "sent":
-                            print(f"  📢 Zalo Bot: {z_res.get('message')}")
-                        elif z_res.get("status") == "error":
-                            print(f"  ⚠️ Zalo Bot: {z_res.get('message')}")
-                    except Exception:
-                        pass
+                        has_today_data = False
+                        if "pack_time" in df.columns:
+                            vn_today = datetime.now(zalo_notifier.VN_TZ).date()
+                            pack_dates = pd.to_datetime(df["pack_time"], errors="coerce").dt.date
+                            has_today_data = bool((pack_dates == vn_today).any())
+                        
+                        if has_today_data:
+                            z_res = zalo_notifier.scan_and_alert_packing_progress(force_send=True)
+                            if z_res.get("status") == "sent":
+                                print(f"  📢 Zalo Bot: {z_res.get('message')}")
+                            elif z_res.get("status") == "error":
+                                print(f"  ⚠️ Zalo Bot: {z_res.get('message')}")
+                        else:
+                            print(f"  ℹ️ File PACKING chỉ có dữ liệu ngày cũ (không có đơn hôm nay), bỏ qua tự động báo tiến độ.")
+                    except Exception as e:
+                        print(f"  ⚠️ Lỗi kiểm tra alert PACKING: {e}")
 
             log_sql = f"""
             MERGE `{LOG_TABLE}` L
