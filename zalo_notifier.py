@@ -2185,20 +2185,44 @@ def parse_ot_query(raw_text: str, now_vn: datetime.datetime = None) -> dict | No
     return _parse_vn_date_filter(text_lower, now_vn=now_vn)
 
 
-def format_ot_report(df: pd.DataFrame, period_label: str, is_single_day: bool = True) -> list[str]:
+TL_USER_CODES = {
+    "camtuyenly", "ducanhle", "giabotran1", "tuantran", "vn016969",
+    "ducthuannguyen1", "hoangnampham", "thesuongto1",
+    "tranhieunhannguyen", "trungsonnguyen3"
+}
+
+
+def is_team_leader(user_code: str, position_name: str = None) -> bool:
+    """Xác định nhân sự có phải là Tổ trưởng (Team Leader) hay không."""
+    uc = str(user_code).strip().lower()
+    if uc in TL_USER_CODES:
+        return True
+    pos = str(position_name) if position_name is not None else ""
+    return ("组长" in pos) or ("leader" in pos.lower()) or ("supervisor" in pos.lower())
+
+
+def format_ot_report(df: pd.DataFrame, period_label: str, is_single_day: bool = True, last_update_str: str = None) -> list[str]:
     """
     Tạo báo cáo giờ công & OT gửi Zalo theo đúng quy tắc:
       - Dùng user_code (cột A), attendance_date (cột B), attendance_group (cột M),
         exception_type (cột N), final_actual_hours (cột AG).
       - Giờ chuẩn = 8.0h/ngày -> OT = max(final_actual_hours - 8.0, 0.0).
+      - Tách rõ tỷ trọng giờ OT của Tổ trưởng (TL) vs Nhân viên (NV).
+      - Chi tiết theo Attendance Group format:
+        tên nhóm - tổng giờ OT - SL TL (giờ OT của TL - % so với tổng OT) - SL nhân viên (giờ OT của nhân viên - % so với tổng OT)
       - Hiển thị chi tiết user_code | group cho đúng 3 lỗi nghiêm trọng.
     """
     header = "[BÁO CÁO GIỜ CÔNG & OT - KHO JDL]"
     if df is None or df.empty:
         return [f"{header}\nNgày: {period_label}\n\nChưa có dữ liệu giờ công cho khoảng thời gian này."]
 
+    if last_update_str is None:
+        last_update_str = get_last_data_update_time("OT")
+
     work = df.copy()
     work["user_code"] = work["user_code"].fillna("").astype(str).str.strip()
+    if "position_name" not in work.columns:
+        work["position_name"] = ""
     work["attendance_group"] = (
         work["attendance_group"]
         .fillna("")
@@ -2211,6 +2235,7 @@ def format_ot_report(df: pd.DataFrame, period_label: str, is_single_day: bool = 
     work["ot_hours"] = (work["final_actual_hours"] - 8.0).clip(lower=0.0)
     work["regular_hours"] = work["final_actual_hours"].clip(lower=0.0, upper=8.0)
     work["_dt"] = pd.to_datetime(work["attendance_date"], errors="coerce")
+    work["is_tl"] = work.apply(lambda r: is_team_leader(r["user_code"], r["position_name"]), axis=1)
 
     n_days = int(work["_dt"].dt.date.nunique())
     single_view = is_single_day and (n_days <= 1)
@@ -2219,46 +2244,87 @@ def format_ot_report(df: pd.DataFrame, period_label: str, is_single_day: bool = 
     worked_df = work[work["final_actual_hours"] > 0]
     ot_df = work[work["ot_hours"] > 0]
 
+    tl_ot_df = ot_df[ot_df["is_tl"]]
+    st_ot_df = ot_df[~ot_df["is_tl"]]
+
     total_hours = float(work["final_actual_hours"].sum())
     total_regular = float(work["regular_hours"].sum())
     total_ot = float(work["ot_hours"].sum())
+    tl_ot = float(tl_ot_df["ot_hours"].sum())
+    st_ot = float(st_ot_df["ot_hours"].sum())
+
+    pct_tl = (tl_ot / total_ot * 100.0) if total_ot > 0 else 0.0
+    pct_st = (st_ot / total_ot * 100.0) if total_ot > 0 else 0.0
     ot_vs_regular_pct = (total_ot / total_regular * 100.0) if total_regular > 0 else 0.0
 
     period_line = f"Ngày: {period_label}" if single_view else f"Ngày: {period_label} ({n_days} ngày có dữ liệu)"
+    time_headers = [period_line]
+    if last_update_str:
+        time_headers.append(f"Dữ liệu cập nhật lúc: {last_update_str}")
+
     lines = [
         header,
-        period_line,
+    ] + time_headers + [
         "",
         "1. TỔNG QUAN",
     ]
     if single_view:
+        tl_worked_cnt = len(worked_df[worked_df["is_tl"]])
+        st_worked_cnt = len(worked_df[~worked_df["is_tl"]])
         lines.append(f"- Nhân sự đi làm: {len(worked_df):,} người (có OT: {len(ot_df):,})")
     else:
         uniq_users = int(worked_df["user_code"].nunique())
         lines.append(f"- Lượt đi làm: {len(worked_df):,} lượt ({uniq_users:,} người) | Lượt có OT: {len(ot_df):,}")
     lines.append(f"- Tổng giờ công: {total_hours:,.2f}h")
     lines.append(f"- Tổng giờ OT: {total_ot:,.2f}h")
+    lines.append(f"  • Tổ trưởng (TL): {tl_ot:,.2f}h ({pct_tl:.1f}% tổng OT) - {len(tl_ot_df)} người" if single_view else f"  • Tổ trưởng (TL): {tl_ot:,.2f}h ({pct_tl:.1f}% tổng OT)")
+    lines.append(f"  • Nhân viên: {st_ot:,.2f}h ({pct_st:.1f}% tổng OT) - {len(st_ot_df)} người" if single_view else f"  • Nhân viên: {st_ot:,.2f}h ({pct_st:.1f}% tổng OT)")
     lines.append(f"- Tỷ lệ OT: {ot_vs_regular_pct:.1f}%")
 
-    # 2. Tổng hợp theo Attendance Group (cột M): tên group: số giờ OT - số người OT - tỉ trọng % tổng OT toàn kho
+    # 2. Chi tiết theo Attendance Group: tên nhóm - tổng giờ OT - SL TL (giờ OT của TL - % so với tổng OT) - SL nhân viên (giờ OT của nhân viên - % so với tổng OT)
     lines.append("")
     lines.append("2. CHI TIẾT THEO ATTENDANCE GROUP")
     if ot_df.empty or total_ot <= 0:
         lines.append("- Không có nhóm nào phát sinh OT.")
     else:
-        grp_df = (
-            ot_df.groupby("attendance_group", as_index=False)
-            .agg(
-                ot_users=("user_code", "nunique"),
-                total_ot=("ot_hours", "sum"),
-            )
-            .sort_values(by=["total_ot", "ot_users"], ascending=[False, False])
-        )
+        grp_data = []
+        for grp, g in work.groupby("attendance_group"):
+            grp_tot_ot = float(g["ot_hours"].sum())
+            if grp_tot_ot <= 0:
+                continue
+
+            g_ot = g[g["ot_hours"] > 0]
+            tl_g = g_ot[g_ot["is_tl"]]
+            st_g = g_ot[~g_ot["is_tl"]]
+
+            tl_cnt = int(tl_g["user_code"].nunique())
+            st_cnt = int(st_g["user_code"].nunique())
+
+            tl_grp_ot = float(tl_g["ot_hours"].sum())
+            st_grp_ot = float(st_g["ot_hours"].sum())
+
+            pct_tl_grp = (tl_grp_ot / grp_tot_ot * 100.0) if grp_tot_ot > 0 else 0.0
+            pct_st_grp = (st_grp_ot / grp_tot_ot * 100.0) if grp_tot_ot > 0 else 0.0
+
+            grp_data.append({
+                "group": grp,
+                "total_ot": grp_tot_ot,
+                "tl_cnt": tl_cnt,
+                "tl_ot": tl_grp_ot,
+                "pct_tl": pct_tl_grp,
+                "st_cnt": st_cnt,
+                "st_ot": st_grp_ot,
+                "pct_st": pct_st_grp,
+            })
+
+        grp_df = pd.DataFrame(grp_data).sort_values(by="total_ot", ascending=False)
         for _, r in grp_df.iterrows():
-            grp_share = (r["total_ot"] / total_ot * 100.0) if total_ot > 0 else 0.0
-            lines.append(
-                f"- {r['attendance_group']}: {r['total_ot']:.2f}h - {int(r['ot_users'])} người - {grp_share:.1f}%"
+            line = (
+                f"- {r['group']} - {r['total_ot']:.2f}h "
+                f"- {r['tl_cnt']} TL ({r['tl_ot']:.2f}h - {r['pct_tl']:.1f}%) "
+                f"- {r['st_cnt']} NV ({r['st_ot']:.2f}h - {r['pct_st']:.1f}%)"
             )
+            lines.append(line)
 
     # 3. 3 Lỗi nghiêm trọng (cột N) -> hiển thị chi tiết user_code | group
     work["serious_cat"] = work["exception_type"].apply(_classify_serious_ot_exception)
@@ -2329,6 +2395,7 @@ def query_ot_report(params: dict) -> list[str]:
         attendance_date,
         attendance_group,
         exception_type,
+        position_name,
         final_actual_hours,
         ot_hours
     FROM `jingdong-505914.wms_data.fact_work_hours`
