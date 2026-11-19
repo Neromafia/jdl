@@ -1202,11 +1202,23 @@ def parse_productivity_query(raw_text: str, now_vn: datetime.datetime = None) ->
     if not stages:
         stages = ["PICK", "PACK"]
 
-    # Trích xuất Top N nếu có (VD: "top 5", "top 10")
+    # Nhận diện chiều sắp xếp (thấp nhất / ít nhất vs cao nhất / nhiều nhất)
+    is_lowest = bool(re.search(
+        r'\b(?:thấp|thap|ít|it|kém|kem|nhỏ|nho|chậm|cham|yếu|yeu)\s*(?:nhất|nhat)?\b|\bbottom\b|\b(?:dưới|duoi)\s*cùng\b',
+        text_lower
+    ))
+    sort_order = "ASC" if is_lowest else "DESC"
+
+    # Trích xuất Top N nếu có (VD: "top 5", "top 10", "10 người thấp nhất")
     top_n = None
     m_top = re.search(r'\btop\s*(\d{1,2})\b', text_lower)
+    if not m_top:
+        m_top = re.search(r'\b(\d{1,2})\s*(?:người|nhân sự|nhan su|nhân viên|nhan vien|bạn|ban)\b', text_lower)
     if m_top:
         top_n = max(1, int(m_top.group(1)))
+    elif is_lowest and not any(k in text_lower for k in ["bảng", "bang", "toàn bộ", "toan bo", "tất cả", "tat ca"]):
+        # Nếu hỏi 'thấp nhất / ít nhất' mà không nói xem cả bảng, mặc định lấy top 10
+        top_n = 10
 
     start_dt = datetime.datetime.combine(target_date, start_time)
     end_dt = datetime.datetime.combine(target_date, end_time)
@@ -1219,6 +1231,8 @@ def parse_productivity_query(raw_text: str, now_vn: datetime.datetime = None) ->
         "time_label": time_label,
         "has_time_range": has_time_range,
         "top_n": top_n,
+        "is_lowest": is_lowest,
+        "sort_order": sort_order,
     }
 
 
@@ -1253,6 +1267,8 @@ def query_worker_productivity_report(params: dict) -> list[str]:
     date_display = params["target_date"].strftime("%d/%m/%Y")
     time_label = params["time_label"]
     top_n = params.get("top_n")
+    is_lowest = bool(params.get("is_lowest", False))
+    sort_dir = "ASC" if is_lowest else "DESC"
 
     stage_title = " & ".join(stages)
     header = f"[SẢN LƯỢNG NHÂN SỰ {stage_title} - KHO JDL]"
@@ -1261,7 +1277,10 @@ def query_worker_productivity_report(params: dict) -> list[str]:
         f"Thời gian: {time_label} ngày {date_display}",
     ]
     if top_n:
-        lines.append(f"(Hiển thị Top {top_n} nhân sự mỗi khâu)")
+        sort_note = "thấp nhất" if is_lowest else "cao nhất"
+        lines.append(f"(Hiển thị Top {top_n} nhân sự {sort_note} mỗi khâu)")
+    elif is_lowest:
+        lines.append("(Sắp xếp: Sản lượng từ thấp lên cao)")
 
     sec_idx = 0
 
@@ -1281,7 +1300,7 @@ def query_worker_productivity_report(params: dict) -> list[str]:
         WHERE COALESCE(end_time, start_time) >= DATETIME '{start_str}'
           AND COALESCE(end_time, start_time) <= DATETIME '{end_str}'
         GROUP BY worker
-        ORDER BY pcs DESC, orders DESC
+        ORDER BY orders {sort_dir}, pcs {sort_dir}
         """
         sql_pick_tot = f"""
         SELECT
@@ -1335,7 +1354,7 @@ def query_worker_productivity_report(params: dict) -> list[str]:
             p.pcs
         FROM pack_agg p
         LEFT JOIN staff_map m ON LOWER(p.raw_worker) = m.key_email
-        ORDER BY p.orders DESC, p.pcs DESC
+        ORDER BY p.orders {sort_dir}, p.pcs {sort_dir}
         """
         sql_pack_tot = f"""
         SELECT
@@ -1371,7 +1390,7 @@ def query_worker_productivity_report(params: dict) -> list[str]:
         WHERE putaway_time >= DATETIME '{start_str}'
           AND putaway_time <= DATETIME '{end_str}'
         GROUP BY worker
-        ORDER BY pcs DESC, orders DESC
+        ORDER BY orders {sort_dir}, pcs {sort_dir}
         """
         df_pa = client.query(sql_pa).to_dataframe()
         lines.append("")
@@ -1395,7 +1414,7 @@ def query_worker_productivity_report(params: dict) -> list[str]:
         WHERE receiving_time >= DATETIME '{start_str}'
           AND receiving_time <= DATETIME '{end_str}'
         GROUP BY worker
-        ORDER BY pcs DESC, orders DESC
+        ORDER BY orders {sort_dir}, pcs {sort_dir}
         """
         df_rv = client.query(sql_rv).to_dataframe()
         lines.append("")
