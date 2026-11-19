@@ -2103,17 +2103,47 @@ def _parse_vn_date_filter(text_lower: str, now_vn: datetime.datetime = None) -> 
         ed = prev_last
         return {"start_date": sd, "end_date": ed, "dates": None, "label": f"Tháng {sd.month:02d}/{sd.year}", "is_latest": False}
 
-    # 4. Tuần này / tuần trước
-    if "tuần này" in text_lower or "tuan nay" in text_lower:
+    # 4. Tuần cụ thể theo số ISO: "tuần 46", "tuần 47", "week 46", "w46", "tuần 46/2026"
+    m_iso = re.search(r'(?:tu[ầa]n|week|\bw)\s*(?:thứ\s*|số\s*)?(\d{1,2})(?:\s*(?:/|-|n[ăa]m\s*)(\d{2,4}))?', text_lower)
+    if m_iso:
+        w_val = int(m_iso.group(1))
+        y_val = _norm_year(m_iso.group(2))
+        if 1 <= w_val <= 53:
+            sd = datetime.date.fromisocalendar(y_val, w_val, 1)  # Thứ Hai
+            ed = datetime.date.fromisocalendar(y_val, w_val, 7)  # Chủ Nhật
+            return {
+                "start_date": sd,
+                "end_date": ed,
+                "dates": None,
+                "label": f"Tuần {w_val} ({sd.strftime('%d/%m')} - {ed.strftime('%d/%m/%Y')})",
+                "is_latest": False
+            }
+
+    # 4b. Tuần này / tuần trước / cả tuần theo ISO
+    if any(k in text_lower for k in ["tuần này", "tuan nay", "cả tuần", "ca tuan", "tuần hiện tại", "tuan hien tai"]):
         sd = today - timedelta(days=today.weekday())
-        ed = today
-        return {"start_date": sd, "end_date": ed, "dates": None, "label": f"Tuần này ({sd.strftime('%d/%m')} - {ed.strftime('%d/%m/%Y')})", "is_latest": False}
+        ed = sd + timedelta(days=6)
+        iso_wk = sd.isocalendar().week
+        return {
+            "start_date": sd,
+            "end_date": ed,
+            "dates": None,
+            "label": f"Tuần {iso_wk} ({sd.strftime('%d/%m')} - {ed.strftime('%d/%m/%Y')})",
+            "is_latest": False
+        }
 
     if "tuần trước" in text_lower or "tuan truoc" in text_lower:
         this_mon = today - timedelta(days=today.weekday())
         sd = this_mon - timedelta(days=7)
         ed = this_mon - timedelta(days=1)
-        return {"start_date": sd, "end_date": ed, "dates": None, "label": f"Tuần trước ({sd.strftime('%d/%m')} - {ed.strftime('%d/%m/%Y')})", "is_latest": False}
+        iso_wk = sd.isocalendar().week
+        return {
+            "start_date": sd,
+            "end_date": ed,
+            "dates": None,
+            "label": f"Tuần {iso_wk} ({sd.strftime('%d/%m')} - {ed.strftime('%d/%m/%Y')})",
+            "is_latest": False
+        }
 
     # 5. Ngày đơn lẻ hoặc nhiều ngày trong tháng hiện tại (không ghi tháng)
     if "hôm nay" in text_lower or "hom nay" in text_lower:
