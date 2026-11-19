@@ -2357,33 +2357,30 @@ def format_ot_report(df: pd.DataFrame, period_label: str, is_single_day: bool = 
             )
             lines.append(line)
 
-    # 3. 3 Lỗi nghiêm trọng (cột N) -> hiển thị chi tiết user_code | group
-    work["serious_cat"] = work["exception_type"].apply(_classify_serious_ot_exception)
-    ser_df = work[work["serious_cat"].notna()].copy()
+    # 3. 3 Lỗi nghiêm trọng (cột N) -> chỉ hiển thị khi xem theo từng ngày (single_view), báo cáo tuần/nhiều ngày bỏ qua
+    if single_view:
+        work["serious_cat"] = work["exception_type"].apply(_classify_serious_ot_exception)
+        ser_df = work[work["serious_cat"].notna()].copy()
 
-    lines.append("")
-    if ser_df.empty:
-        lines.append("3. LỖI NGHIÊM TRỌNG: Không có (0 lượt).")
-    else:
-        lines.append(f"3. LỖI NGHIÊM TRỌNG ({len(ser_df):,} lượt)")
-        cat_order = [
-            "Vắng ngày không có lịch",
-            "Có mặt ngày không có lịch",
-            "Có mặt ngày nghỉ",
-        ]
-        for cat in cat_order:
-            sub = ser_df[ser_df["serious_cat"] == cat].sort_values(
-                by=["_dt", "attendance_group", "user_code"], ascending=[True, True, True]
-            )
-            if sub.empty:
-                continue
-            lines.append(f"• {cat} ({len(sub):,}):")
-            for _, r in sub.iterrows():
-                if single_view:
+        lines.append("")
+        if ser_df.empty:
+            lines.append("3. LỖI NGHIÊM TRỌNG: Không có (0 lượt).")
+        else:
+            lines.append(f"3. LỖI NGHIÊM TRỌNG ({len(ser_df):,} lượt)")
+            cat_order = [
+                "Vắng ngày không có lịch",
+                "Có mặt ngày không có lịch",
+                "Có mặt ngày nghỉ",
+            ]
+            for cat in cat_order:
+                sub = ser_df[ser_df["serious_cat"] == cat].sort_values(
+                    by=["attendance_group", "user_code"], ascending=[True, True]
+                )
+                if sub.empty:
+                    continue
+                lines.append(f"• {cat} ({len(sub):,}):")
+                for _, r in sub.iterrows():
                     lines.append(f"  - {r['user_code']} | {r['attendance_group']}")
-                else:
-                    d_str = r["_dt"].strftime("%d/%m") if pd.notna(r["_dt"]) else ""
-                    lines.append(f"  - {d_str} | {r['user_code']} | {r['attendance_group']}")
 
     return _split_zalo_lines(lines, header_prefix=header, max_chars=1800)
 
