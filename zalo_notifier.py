@@ -214,7 +214,7 @@ def format_sla_alert_message(df_urgent: pd.DataFrame, df_overdue: pd.DataFrame, 
     return "\n".join(lines)
 
 
-def format_detailed_backlog_list(df_backlog: pd.DataFrame, now_vn: datetime.datetime = None, max_hours: float = 2.5) -> list[str]:
+def format_detailed_backlog_list(df_backlog: pd.DataFrame, now_vn: datetime.datetime = None, max_hours: float = 2.5, last_update_str: str = None) -> list[str]:
     """
     Tạo danh sách toàn bộ các đơn sắp trễ SLA (quá hạn hoặc sắp quá hạn <= max_hours tiếng).
     Phân tách rõ ràng giữa ĐÃ QUÁ HẠN và SẮP QUÁ HẠN:
@@ -225,8 +225,17 @@ def format_detailed_backlog_list(df_backlog: pd.DataFrame, now_vn: datetime.date
     if now_vn is None:
         now_vn = datetime.datetime.now(VN_TZ).replace(tzinfo=None)
 
+    time_str = now_vn.strftime('%H:%M:%S %d/%m/%Y')
+    if last_update_str is None:
+        last_update_str = get_last_data_update_time("BACKLOG")
+
+    time_headers = [f"Thời gian báo cáo: {time_str}"]
+    if last_update_str:
+        time_headers.append(f"Dữ liệu cập nhật lúc: {last_update_str}")
+    time_header_text = "\n".join(time_headers)
+
     if df_backlog is None or df_backlog.empty:
-        return [f"[DANH SÁCH ĐƠN HÀNG SẮP QUÁ HẠN SLA]\nThời gian: {now_vn.strftime('%H:%M:%S %d/%m/%Y')}\nKhông có dữ liệu đơn Backlog tồn đọng."]
+        return [f"[DANH SÁCH ĐƠN HÀNG SẮP QUÁ HẠN SLA]\n{time_header_text}\nKhông có dữ liệu đơn Backlog tồn đọng."]
 
     df = df_backlog.copy()
     if 'prod_dt' not in df.columns:
@@ -234,7 +243,7 @@ def format_detailed_backlog_list(df_backlog: pd.DataFrame, now_vn: datetime.date
 
     df_today = df[df['prod_dt'].dt.date == now_vn.date()].copy()
     if df_today.empty:
-        return [f"[DANH SÁCH ĐƠN HÀNG SẮP QUÁ HẠN SLA]\nThời gian: {now_vn.strftime('%H:%M:%S %d/%m/%Y')}\nKhông có đơn nào tồn đọng trong ngày hôm nay."]
+        return [f"[DANH SÁCH ĐƠN HÀNG SẮP QUÁ HẠN SLA]\n{time_header_text}\nKhông có đơn nào tồn đọng trong ngày hôm nay."]
 
     df_today['diff_sec'] = (df_today['prod_dt'] - now_vn).dt.total_seconds()
     # Lọc đơn rủi ro: quá hạn (diff_sec < 0) hoặc sắp quá hạn trong max_hours
@@ -245,7 +254,7 @@ def format_detailed_backlog_list(df_backlog: pd.DataFrame, now_vn: datetime.date
         next_h = next_min_sec / 3600
         return [
             f"[DANH SÁCH ĐƠN HÀNG SẮP QUÁ HẠN SLA]\n"
-            f"Thời gian: {now_vn.strftime('%H:%M:%S %d/%m/%Y')}\n"
+            f"{time_header_text}\n"
             f"Hiện không có đơn nào quá hạn hoặc sắp quá hạn (trong {max_hours:g} tiếng tới).\n"
             f"Đơn có hạn gần nhất còn khoảng {next_h:.1f} tiếng nữa.\n"
             f"Tổng đơn tồn hôm nay: {len(df_today):,} đơn."
@@ -270,7 +279,7 @@ def format_detailed_backlog_list(df_backlog: pd.DataFrame, now_vn: datetime.date
     messages = []
     current_lines = [
         "[DANH SÁCH ĐƠN HÀNG SẮP QUÁ HẠN SLA]",
-        f"Thời gian: {now_vn.strftime('%H:%M:%S %d/%m/%Y')}",
+    ] + time_headers + [
         summary_line,
         ""
     ]
@@ -379,7 +388,7 @@ def clean_packing_client_name(name: str) -> str:
     return str(name).strip()
 
 
-def format_packing_progress_report(df_pack: pd.DataFrame, df_bl: pd.DataFrame, now_vn: datetime.datetime = None) -> str:
+def format_packing_progress_report(df_pack: pd.DataFrame, df_bl: pd.DataFrame, now_vn: datetime.datetime = None, last_update_str: str = None) -> str:
     """
     Tạo báo cáo tiến độ đóng gói theo Mẫu 2:
     - Chia 2 nhóm rõ ràng: B2B (KKV, Chint, Envision) và B2C (còn lại).
@@ -389,12 +398,21 @@ def format_packing_progress_report(df_pack: pd.DataFrame, df_bl: pd.DataFrame, n
     if now_vn is None:
         now_vn = datetime.datetime.now(VN_TZ).replace(tzinfo=None)
 
+    time_str = now_vn.strftime('%H:%M %d/%m/%Y')
+    if last_update_str is None:
+        last_update_str = get_last_data_update_time("PACKING")
+
+    time_headers = [f"Thời gian báo cáo: {time_str}"]
+    if last_update_str:
+        time_headers.append(f"Dữ liệu cập nhật lúc: {last_update_str}")
+    time_header_text = "\n".join(time_headers)
+
     bl_orders = int(df_bl['order_no'].nunique()) if (df_bl is not None and not df_bl.empty) else 0
 
     if df_pack is None or df_pack.empty:
         return (
             f"[TIẾN ĐỘ ĐÓNG GÓI - KHO JDL]\n"
-            f"Thời gian: {now_vn.strftime('%H:%M %d/%m/%Y')}\n\n"
+            f"{time_header_text}\n\n"
             f"TỔNG QUAN\n"
             f"- Đã đóng gói: 0 đơn (0 pcs)\n"
             f"- Tồn chờ đóng (Backlog): {bl_orders:,} đơn\n"
@@ -426,10 +444,9 @@ def format_packing_progress_report(df_pack: pd.DataFrame, df_bl: pd.DataFrame, n
     b2c_orders = int(df_b2c['orders'].sum())
     b2c_pcs = int(df_b2c['pcs'].sum())
 
-    time_str = now_vn.strftime('%H:%M %d/%m/%Y')
     lines = [
         "[TIẾN ĐỘ ĐÓNG GÓI - KHO JDL]",
-        f"Thời gian: {time_str}",
+    ] + time_headers + [
         "",
         "TỔNG QUAN",
         f"- Đã đóng gói: {tot_packed_orders:,} đơn ({tot_packed_pcs:,} pcs)",
@@ -486,20 +503,28 @@ def format_packing_progress_report(df_pack: pd.DataFrame, df_bl: pd.DataFrame, n
     return "\n".join(lines)
 
 
-def format_etc_report(df_pack: pd.DataFrame, df_bl: pd.DataFrame, now_vn: datetime.datetime = None) -> str:
+def format_etc_report(df_pack: pd.DataFrame, df_bl: pd.DataFrame, now_vn: datetime.datetime = None, last_update_str: str = None) -> str:
     """Tạo nội dung tin nhắn chuyên sâu dự báo thời gian clear backlog."""
     if now_vn is None:
         now_vn = datetime.datetime.now(VN_TZ).replace(tzinfo=None)
 
     time_str = now_vn.strftime('%H:%M %d/%m/%Y')
+    if last_update_str is None:
+        last_update_str = get_last_data_update_time("PACKING")
+
+    time_headers = [f"Thời gian báo cáo: {time_str}"]
+    if last_update_str:
+        time_headers.append(f"Dữ liệu cập nhật lúc: {last_update_str}")
+    time_header_text = "\n".join(time_headers)
+
     bl_orders = int(df_bl['order_no'].nunique()) if (df_bl is not None and not df_bl.empty) else 0
     total_packed = int(df_pack['order_no'].nunique()) if (df_pack is not None and not df_pack.empty) else 0
 
     if bl_orders == 0:
-        return f"[DỰ BÁO THỜI GIAN CLEAR BACKLOG - KHO JDL]\nThời gian: {time_str}\n\nHiện tại kho đã CLEAR HẾT BACKLOG! Không còn đơn tồn đọng."
+        return f"[DỰ BÁO THỜI GIAN CLEAR BACKLOG - KHO JDL]\n{time_header_text}\n\nHiện tại kho đã CLEAR HẾT BACKLOG! Không còn đơn tồn đọng."
 
     if df_pack is None or df_pack.empty or total_packed == 0:
-        return f"[DỰ BÁO THỜI GIAN CLEAR BACKLOG - KHO JDL]\nThời gian: {time_str}\n\nChưa có sản lượng đóng gói nào hôm nay để tính tốc độ clear hàng."
+        return f"[DỰ BÁO THỜI GIAN CLEAR BACKLOG - KHO JDL]\n{time_header_text}\n\nChưa có sản lượng đóng gói nào hôm nay để tính tốc độ clear hàng."
 
     min_t = df_pack['pack_time'].min()
     max_t = df_pack['pack_time'].max()
@@ -527,7 +552,7 @@ def format_etc_report(df_pack: pd.DataFrame, df_bl: pd.DataFrame, now_vn: dateti
 
     lines = [
         "[DỰ BÁO THỜI GIAN CLEAR BACKLOG - KHO JDL]",
-        f"Thời gian: {time_str}",
+    ] + time_headers + [
         "",
         "TIẾN ĐỘ HIỆN TẠI",
         f"- Đã đóng gói: {total_packed:,} đơn (từ {s_min} đến {s_max})",
@@ -550,6 +575,24 @@ def get_bigquery_client():
     import sync_wms_local
     creds = sync_wms_local.get_credentials()
     return bigquery.Client(credentials=creds, project="jingdong-505914")
+
+
+def get_last_data_update_time(folder_name: str, client = None) -> str | None:
+    """Lấy thời điểm cập nhật dữ liệu gần nhất từ bảng sync_file_logs theo giờ VN (HH:MM dd/mm/yyyy)."""
+    try:
+        if client is None:
+            client = get_bigquery_client()
+        sql = f"""
+        SELECT FORMAT_TIMESTAMP('%H:%M %d/%m/%Y', MAX(synced_at), 'Asia/Ho_Chi_Minh') as last_update
+        FROM `jingdong-505914.wms_data.sync_file_logs`
+        WHERE folder_name = '{folder_name}'
+        """
+        df = client.query(sql).to_dataframe()
+        if not df.empty and pd.notna(df['last_update'].iloc[0]) and df['last_update'].iloc[0]:
+            return str(df['last_update'].iloc[0])
+    except Exception:
+        pass
+    return None
 
 
 def handle_etc_command(target_chat_id: str = None) -> tuple[bool, str]:
@@ -699,7 +742,7 @@ def handle_packing_command(target_chat_id: str = None) -> tuple[bool, str]:
     return False, res.get("message")
 
 
-def format_order_progress_report(df_order: pd.DataFrame, now_vn: datetime.datetime = None, target_date_str: str = None) -> str:
+def format_order_progress_report(df_order: pd.DataFrame, now_vn: datetime.datetime = None, target_date_str: str = None, last_update_str: str = None) -> str:
     """
     Tạo báo cáo số lượng đơn hàng khách đổ xuống hệ thống (ORDER):
     - Báo tổng đơn nhận.
@@ -711,12 +754,19 @@ def format_order_progress_report(df_order: pd.DataFrame, now_vn: datetime.dateti
         now_vn = datetime.datetime.now(VN_TZ).replace(tzinfo=None)
 
     time_str = now_vn.strftime('%H:%M %d/%m/%Y')
+    if last_update_str is None:
+        last_update_str = get_last_data_update_time("ORDER")
+
+    time_headers = [f"Thời gian báo cáo: {time_str}"]
+    if last_update_str:
+        time_headers.append(f"Dữ liệu cập nhật lúc: {last_update_str}")
+    time_header_text = "\n".join(time_headers)
 
     if df_order is None or df_order.empty:
         date_display = target_date_str or now_vn.strftime('%d/%m/%Y')
         return (
             f"[TỔNG HỢP ĐƠN HÀNG HỆ THỐNG (ORDER) - KHO JDL]\n"
-            f"Thời gian: {time_str}\n\n"
+            f"{time_header_text}\n\n"
             f"Chưa có dữ liệu đơn hàng nào được ghi nhận cho ngày {date_display}."
         )
 
@@ -727,7 +777,7 @@ def format_order_progress_report(df_order: pd.DataFrame, now_vn: datetime.dateti
     if df.empty:
         return (
             f"[TỔNG HỢP ĐƠN HÀNG HỆ THỐNG (ORDER) - KHO JDL]\n"
-            f"Thời gian: {time_str}\n\n"
+            f"{time_header_text}\n\n"
             f"Tổng số đơn nhận hôm nay: 0 đơn."
         )
 
@@ -747,7 +797,7 @@ def format_order_progress_report(df_order: pd.DataFrame, now_vn: datetime.dateti
 
     lines = [
         "[TỔNG HỢP ĐƠN HÀNG HỆ THỐNG (ORDER) - KHO JDL]",
-        f"Thời gian: {time_str}",
+    ] + time_headers + [
         "",
         "TỔNG QUAN",
         f"- Tổng đơn nhận từ khách: {tot_orders:,} đơn",
@@ -892,7 +942,9 @@ def scan_and_alert_backlog_sla(
     df_today = df[df['prod_dt'].dt.date == today_vn].copy()
     if df_today.empty:
         if notify_if_safe:
-            msg = f"[DANH SÁCH ĐƠN HÀNG SẮP QUÁ HẠN SLA]\nThời gian: {now_vn.strftime('%H:%M:%S %d/%m/%Y')}\nKhông có đơn nào tồn đọng trong ngày hôm nay ({today_vn})."
+            last_sync = get_last_data_update_time("BACKLOG")
+            sync_line = f"\nDữ liệu cập nhật lúc: {last_sync}" if last_sync else ""
+            msg = f"[DANH SÁCH ĐƠN HÀNG SẮP QUÁ HẠN SLA]\nThời gian báo cáo: {now_vn.strftime('%H:%M:%S %d/%m/%Y')}{sync_line}\nKhông có đơn nào tồn đọng trong ngày hôm nay ({today_vn})."
             send_zalo_message(msg, target_chat_id=chat_id)
         return {"status": "no_today_orders", "message": f"Không có đơn nào có hạn hôm nay ({today_vn})."}
 
