@@ -213,10 +213,13 @@ def call_gemini_ai(prompt: str, user_name: str = "") -> str:
     return "Xin lỗi, hiện tại tôi chưa thể kết nối đến máy chủ AI. Bạn hãy thử lại sau ít phút nhé."
 
 def try_schedule_reminder(raw_text: str, sender: str, chat_id: str, bot_token: str) -> bool:
-    """Tự động nhận diện yêu cầu hẹn giờ/nhắc nhở (ví dụ: '15h10 hãy kêu mình nhé' hoặc 'sau 15 phút nhắc tôi')"""
-    text_lower = raw_text.lower()
-    keywords = ["nhắc", "kêu", "gọi", "báo thức", "hẹn", "đánh thức"]
-    if not any(k in text_lower for k in keywords):
+    """Tự động nhận diện yêu cầu hẹn giờ/nhắc nhở (cho chính mình hoặc nhắn vào group nhắc người khác)."""
+    text = raw_text
+    clean = re.sub(r'@bot\w*', '', text, flags=re.IGNORECASE).strip()
+    clean_lower = clean.lower()
+
+    keywords = ["nhắc", "nhac", "kêu", "keu", "gọi", "goi", "báo thức", "bao thuc", "hẹn", "hen", "đánh thức", "danh thuc"]
+    if not any(k in clean_lower for k in keywords):
         return False
 
     now_vn = datetime.datetime.now(VN_TZ).replace(tzinfo=None)
@@ -224,7 +227,7 @@ def try_schedule_reminder(raw_text: str, sender: str, chat_id: str, bot_token: s
     target_label = ""
 
     # Dạng 1: "sau X phút" / "sau X tiếng"
-    m_after = re.search(r'sau\s*(\d+)\s*(phút|tiếng|h|p)', text_lower)
+    m_after = re.search(r'sau\s*(\d+)\s*(phút|tiếng|h|p)', clean_lower)
     if m_after:
         val = int(m_after.group(1))
         unit = m_after.group(2)
@@ -237,7 +240,7 @@ def try_schedule_reminder(raw_text: str, sender: str, chat_id: str, bot_token: s
 
     # Dạng 2: "lúc 15h10", "15h10", "15:10"
     if delay_sec is None:
-        m_time = re.search(r'(\d{1,2})[h:](\d{1,2})?', text_lower)
+        m_time = re.search(r'(?:lúc|luc)?\s*(\d{1,2})[h:g](\d{1,2})?', clean_lower)
         if m_time:
             hour = int(m_time.group(1))
             minute = int(m_time.group(2)) if m_time.group(2) else 0
@@ -247,24 +250,80 @@ def try_schedule_reminder(raw_text: str, sender: str, chat_id: str, bot_token: s
                     delay_sec = (target_dt - now_vn).total_seconds()
                     target_label = f"lúc {hour:02d}h{minute:02d}"
 
-    if delay_sec and 0 < delay_sec <= 43200:
-        url_send = f"https://bot-api.zaloplatforms.com/bot{bot_token}/sendMessage"
-        def _reminder_task():
-            alert_msg = f"⏰ [NHẮC NHỞ] {sender} ơi, đã đến giờ hẹn rồi nhé ({target_label})! Hết giờ giải lao rồi, quay lại tiếp tục ca làm việc thôi nào!"
-            try:
-                requests.post(url_send, json={"chat_id": chat_id, "text": alert_msg}, headers={"Content-Type": "application/json"}, timeout=15)
-            except Exception:
-                pass
+    if not (delay_sec and 0 < delay_sec <= 43200):
+        return False
 
-        t = threading.Timer(delay_sec, _reminder_task)
-        t.daemon = True
-        t.start()
+    # 1. Phát hiện gửi vào nhóm
+    send_to_group = bool(re.search(r'\b(?:vào|trong|len|lên)\s*(?:group|nhóm|nhom|grp)\b', clean_lower))
 
+    # 2. Bóc tách người được nhắc và hành động cần làm
+    stripped = re.sub(r'\b(?:nhắn|nhan|bắn|gui|gửi)\s*(?:vào|trong)?\s*(?:group|nhóm|nhom|grp)\b', '', clean, flags=re.IGNORECASE)
+    stripped = re.sub(r'\b(?:vào|trong)\s*(?:group|nhóm|nhom|grp)\b', '', stripped, flags=re.IGNORECASE)
+    stripped = re.sub(r'sau\s*\d+\s*(?:phút|tiếng|h|p)\s*(?:nữa|nua)?', '', stripped, flags=re.IGNORECASE)
+    stripped = re.sub(r'(?:lúc|luc)?\s*\d{1,2}[h:g]\d{0,2}', '', stripped, flags=re.IGNORECASE)
+    stripped = re.sub(r'\s+', ' ', stripped).strip()
+
+    m_rem = re.search(r'(?:nhắc|nhac|kêu|keu|gọi|goi|hẹn|hen)\s+(.+)', stripped, flags=re.IGNORECASE)
+    target_person = sender
+    action = ""
+    is_self = True
+
+    if m_rem:
+        rem_content = m_rem.group(1).strip()
+        rem_content = re.sub(r'\s*(?:nhé|nha|giúp|giup|nhe|với|voi)$', '', rem_content, flags=re.IGNORECASE).strip()
+
+        m_self = re.match(r'^(?:cho\s+)?(?:mình|minh|tôi|toi|tao|tớ|to|em)\b', rem_content, flags=re.IGNORECASE)
+        if m_self:
+            is_self = True
+            action = rem_content[m_self.end():].strip()
+        else:
+            is_self = False
+            m_target = re.match(r'^((?:bạn|ban|anh|chị|chi|em|nhân viên|nhan vien|@)\s*[^\s]+|[A-Za-zÀ-ỹ0-9_]+)\s*(.*)', rem_content, flags=re.IGNORECASE)
+            if m_target:
+                target_person = m_target.group(1).strip()
+                action = m_target.group(2).strip()
+            else:
+                target_person = rem_content
+                action = ""
+
+    # Nếu người dùng nhắn riêng và nhắc người khác, mặc định gửi vào group chat của kho
+    cfg = zalo_notifier.get_zalo_config()
+    group_chat_id = cfg.get("chat_id", "")
+    if not is_self:
+        send_to_group = True
+
+    dest_chat_id = group_chat_id if (send_to_group and group_chat_id) else chat_id
+    url_send = f"https://bot-api.zaloplatforms.com/bot{bot_token}/sendMessage"
+
+    # Xây dựng nội dung lời nhắc tự nhiên
+    if is_self:
+        alert_msg = f"⏰ [NHẮC NHỞ] {sender} ơi, đã đến giờ hẹn rồi nhé ({target_label})! Hết giờ giải lao rồi, quay lại tiếp tục ca làm việc thôi nào!"
         ack_msg = f"Dạ nhận lệnh! Đúng {target_label} mình sẽ nhắn nhắc {sender} nhé, chúc bạn giải lao vui vẻ!"
-        requests.post(url_send, json={"chat_id": chat_id, "text": ack_msg}, headers={"Content-Type": "application/json"}, timeout=15)
-        return True
+    else:
+        # Nhắn tự nhiên, bình thường, không kèm 'từ quản lý'
+        if action:
+            alert_msg = f"⏰ [NHẮC NHỞ] {target_person} ơi, đã đến giờ {action} rồi nhé! Bạn kiểm tra và xử lý giúp mình nha."
+        else:
+            alert_msg = f"⏰ [NHẮC NHỞ] {target_person} ơi, đã đến giờ hẹn rồi nhé! Bạn kiểm tra lại công việc giúp mình nha."
 
-    return False
+        action_desc = f": '{action}'" if action else ""
+        if dest_chat_id == group_chat_id and chat_id != group_chat_id:
+            ack_msg = f"Dạ nhận lệnh! Đúng {target_label} em sẽ gửi tin nhắn vào nhóm kho để nhắc {target_person}{action_desc} nhé."
+        else:
+            ack_msg = f"Dạ nhận lệnh! Đúng {target_label} em sẽ nhắn nhắc {target_person}{action_desc} nhé."
+
+    def _reminder_task():
+        try:
+            requests.post(url_send, json={"chat_id": dest_chat_id, "text": alert_msg}, headers={"Content-Type": "application/json"}, timeout=15)
+        except Exception:
+            pass
+
+    t = threading.Timer(delay_sec, _reminder_task)
+    t.daemon = True
+    t.start()
+
+    requests.post(url_send, json={"chat_id": chat_id, "text": ack_msg}, headers={"Content-Type": "application/json"}, timeout=15)
+    return True
 
 
 def acquire_singleton_lock(port: int = 54321) -> bool:
