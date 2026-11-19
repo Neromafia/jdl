@@ -1209,6 +1209,13 @@ def parse_productivity_query(raw_text: str, now_vn: datetime.datetime = None) ->
     ))
     sort_order = "ASC" if is_lowest else "DESC"
 
+    # Nhận diện tiêu chí xếp hạng: mặc định là 'pcs' (chuẩn sản lượng kho), trừ khi có hỏi rõ 'theo đơn'
+    has_orders_kw = bool(re.search(
+        r'\b(?:theo\s+đơn|theo\s+don|số\s+đơn|so\s+don|ít\s+đơn|it\s+don|nhiều\s+đơn|nhieu\s+don|đơn\s+nhất|don\s+nhat)\b',
+        text_lower
+    ))
+    metric = "orders" if has_orders_kw else "pcs"
+
     # Trích xuất Top N nếu có (VD: "top 5", "top 10", "10 người thấp nhất")
     top_n = None
     m_top = re.search(r'\btop\s*(\d{1,2})\b', text_lower)
@@ -1233,6 +1240,7 @@ def parse_productivity_query(raw_text: str, now_vn: datetime.datetime = None) ->
         "top_n": top_n,
         "is_lowest": is_lowest,
         "sort_order": sort_order,
+        "metric": metric,
     }
 
 
@@ -1269,6 +1277,14 @@ def query_worker_productivity_report(params: dict) -> list[str]:
     top_n = params.get("top_n")
     is_lowest = bool(params.get("is_lowest", False))
     sort_dir = "ASC" if is_lowest else "DESC"
+    metric = params.get("metric", "pcs")
+
+    if metric == "orders":
+        sql_order_clause = f"orders {sort_dir}, pcs {sort_dir}"
+        metric_label = "đơn"
+    else:
+        sql_order_clause = f"pcs {sort_dir}, orders {sort_dir}"
+        metric_label = "pcs"
 
     stage_title = " & ".join(stages)
     header = f"[SẢN LƯỢNG NHÂN SỰ {stage_title} - KHO JDL]"
@@ -1278,9 +1294,9 @@ def query_worker_productivity_report(params: dict) -> list[str]:
     ]
     if top_n:
         sort_note = "thấp nhất" if is_lowest else "cao nhất"
-        lines.append(f"(Hiển thị Top {top_n} nhân sự {sort_note} mỗi khâu)")
+        lines.append(f"(Hiển thị Top {top_n} nhân sự {sort_note} theo {metric_label} mỗi khâu)")
     elif is_lowest:
-        lines.append("(Sắp xếp: Sản lượng từ thấp lên cao)")
+        lines.append(f"(Sắp xếp: Sản lượng {metric_label} từ thấp lên cao)")
 
     sec_idx = 0
 
@@ -1300,7 +1316,7 @@ def query_worker_productivity_report(params: dict) -> list[str]:
         WHERE COALESCE(end_time, start_time) >= DATETIME '{start_str}'
           AND COALESCE(end_time, start_time) <= DATETIME '{end_str}'
         GROUP BY worker
-        ORDER BY orders {sort_dir}, pcs {sort_dir}
+        ORDER BY {sql_order_clause}
         """
         sql_pick_tot = f"""
         SELECT
@@ -1320,14 +1336,18 @@ def query_worker_productivity_report(params: dict) -> list[str]:
         else:
             tot_o = int(df_pt['orders'].iloc[0] or 0)
             tot_pcs = int(df_pt['pcs'].iloc[0] or 0)
-            lines.append(f"{sec_idx}. NHÂN SỰ PICKING ({len(df_p)} người | Tổng: {tot_o:,} đơn - {tot_pcs:,} pcs)")
+            lines.append(f"{sec_idx}. NHÂN SỰ PICKING ({len(df_p)} người | Tổng: {tot_pcs:,} pcs - {tot_o:,} đơn)")
             df_show = df_p.head(top_n) if top_n else df_p
             for i, (_, r) in enumerate(df_show.iterrows(), 1):
-                lines.append(f"  {i}. {r['worker']}: {int(r['orders']):,} đơn ({int(r['pcs'] or 0):,} pcs)")
+                if metric == "orders":
+                    lines.append(f"  {i}. {r['worker']}: {int(r['orders']):,} đơn ({int(r['pcs'] or 0):,} pcs)")
+                else:
+                    lines.append(f"  {i}. {r['worker']}: {int(r['pcs'] or 0):,} pcs ({int(r['orders']):,} đơn)")
 
     # 2. PACKING (tự động map tên Tiếng Việt từ fact_picking qua email nếu có)
     if "PACK" in stages:
         sec_idx += 1
+        sql_pack_order = f"p.orders {sort_dir}, p.pcs {sort_dir}" if metric == "orders" else f"p.pcs {sort_dir}, p.orders {sort_dir}"
         sql_pack = f"""
         WITH staff_map AS (
             SELECT
@@ -1354,7 +1374,7 @@ def query_worker_productivity_report(params: dict) -> list[str]:
             p.pcs
         FROM pack_agg p
         LEFT JOIN staff_map m ON LOWER(p.raw_worker) = m.key_email
-        ORDER BY p.orders {sort_dir}, p.pcs {sort_dir}
+        ORDER BY {sql_pack_order}
         """
         sql_pack_tot = f"""
         SELECT
@@ -1373,10 +1393,13 @@ def query_worker_productivity_report(params: dict) -> list[str]:
         else:
             tot_o = int(df_kt['orders'].iloc[0] or 0)
             tot_pcs = int(df_kt['pcs'].iloc[0] or 0)
-            lines.append(f"{sec_idx}. NHÂN SỰ PACKING ({len(df_k)} người | Tổng: {tot_o:,} đơn - {tot_pcs:,} pcs)")
+            lines.append(f"{sec_idx}. NHÂN SỰ PACKING ({len(df_k)} người | Tổng: {tot_pcs:,} pcs - {tot_o:,} đơn)")
             df_show = df_k.head(top_n) if top_n else df_k
             for i, (_, r) in enumerate(df_show.iterrows(), 1):
-                lines.append(f"  {i}. {r['worker']}: {int(r['orders']):,} đơn ({int(r['pcs'] or 0):,} pcs)")
+                if metric == "orders":
+                    lines.append(f"  {i}. {r['worker']}: {int(r['orders']):,} đơn ({int(r['pcs'] or 0):,} pcs)")
+                else:
+                    lines.append(f"  {i}. {r['worker']}: {int(r['pcs'] or 0):,} pcs ({int(r['orders']):,} đơn)")
 
     # 3. PUTAWAY (nếu có hỏi)
     if "PUTAWAY" in stages:
@@ -1390,7 +1413,7 @@ def query_worker_productivity_report(params: dict) -> list[str]:
         WHERE putaway_time >= DATETIME '{start_str}'
           AND putaway_time <= DATETIME '{end_str}'
         GROUP BY worker
-        ORDER BY orders {sort_dir}, pcs {sort_dir}
+        ORDER BY {sql_order_clause}
         """
         df_pa = client.query(sql_pa).to_dataframe()
         lines.append("")
@@ -1400,7 +1423,10 @@ def query_worker_productivity_report(params: dict) -> list[str]:
             lines.append(f"{sec_idx}. NHÂN SỰ PUT AWAY ({len(df_pa)} người | Tổng: {int(df_pa['pcs'].sum() or 0):,} pcs)")
             df_show = df_pa.head(top_n) if top_n else df_pa
             for i, (_, r) in enumerate(df_show.iterrows(), 1):
-                lines.append(f"  {i}. {r['worker']}: {int(r['orders']):,} đơn ({int(r['pcs'] or 0):,} pcs)")
+                if metric == "orders":
+                    lines.append(f"  {i}. {r['worker']}: {int(r['orders']):,} đơn ({int(r['pcs'] or 0):,} pcs)")
+                else:
+                    lines.append(f"  {i}. {r['worker']}: {int(r['pcs'] or 0):,} pcs ({int(r['orders']):,} đơn)")
 
     # 4. RECEIVING (nếu có hỏi)
     if "RECEIVING" in stages:
@@ -1414,7 +1440,7 @@ def query_worker_productivity_report(params: dict) -> list[str]:
         WHERE receiving_time >= DATETIME '{start_str}'
           AND receiving_time <= DATETIME '{end_str}'
         GROUP BY worker
-        ORDER BY orders {sort_dir}, pcs {sort_dir}
+        ORDER BY {sql_order_clause}
         """
         df_rv = client.query(sql_rv).to_dataframe()
         lines.append("")
@@ -1424,7 +1450,10 @@ def query_worker_productivity_report(params: dict) -> list[str]:
             lines.append(f"{sec_idx}. NHÂN SỰ RECEIVING ({len(df_rv)} người | Tổng: {int(df_rv['pcs'].sum() or 0):,} pcs)")
             df_show = df_rv.head(top_n) if top_n else df_rv
             for i, (_, r) in enumerate(df_show.iterrows(), 1):
-                lines.append(f"  {i}. {r['worker']}: {int(r['orders']):,} đơn ({int(r['pcs'] or 0):,} pcs)")
+                if metric == "orders":
+                    lines.append(f"  {i}. {r['worker']}: {int(r['orders']):,} đơn ({int(r['pcs'] or 0):,} pcs)")
+                else:
+                    lines.append(f"  {i}. {r['worker']}: {int(r['pcs'] or 0):,} pcs ({int(r['orders']):,} đơn)")
 
     return _split_zalo_lines(lines, header_prefix=header, max_chars=1800)
 
