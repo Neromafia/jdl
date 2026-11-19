@@ -400,7 +400,20 @@ def format_packing_progress_report(df_pack: pd.DataFrame, df_bl: pd.DataFrame, n
 
     time_str = now_vn.strftime('%H:%M %d/%m/%Y')
     if last_update_str is None:
-        last_update_str = get_last_data_update_time("PACKING")
+        pack_up = get_last_data_update_time("PACKING")
+        bl_up = get_last_data_update_time("BACKLOG")
+        if pack_up and bl_up:
+            pack_time, pack_date = pack_up.split(" ", 1)
+            bl_time, bl_date = bl_up.split(" ", 1)
+            if pack_date == bl_date:
+                if pack_time == bl_time:
+                    last_update_str = pack_up
+                else:
+                    last_update_str = f"Pack {pack_time} | Backlog {bl_time} ({pack_date})"
+            else:
+                last_update_str = f"Pack {pack_up} | Backlog {bl_up}"
+        else:
+            last_update_str = pack_up or bl_up
 
     time_headers = [f"Thời gian báo cáo: {time_str}"]
     if last_update_str:
@@ -520,7 +533,20 @@ def format_etc_report(df_pack: pd.DataFrame, df_bl: pd.DataFrame, now_vn: dateti
 
     time_str = now_vn.strftime('%H:%M %d/%m/%Y')
     if last_update_str is None:
-        last_update_str = get_last_data_update_time("PACKING")
+        pack_up = get_last_data_update_time("PACKING")
+        bl_up = get_last_data_update_time("BACKLOG")
+        if pack_up and bl_up:
+            pack_time, pack_date = pack_up.split(" ", 1)
+            bl_time, bl_date = bl_up.split(" ", 1)
+            if pack_date == bl_date:
+                if pack_time == bl_time:
+                    last_update_str = pack_up
+                else:
+                    last_update_str = f"Pack {pack_time} | Backlog {bl_time} ({pack_date})"
+            else:
+                last_update_str = f"Pack {pack_up} | Backlog {bl_up}"
+        else:
+            last_update_str = pack_up or bl_up
 
     time_headers = [f"Thời gian báo cáo: {time_str}"]
     if last_update_str:
