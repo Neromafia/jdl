@@ -398,6 +398,21 @@ def transform_df_for_stage(df_in, stage_cfg, bq_client):
 
     return df, cols_keep, target
 
+
+# Bộ đệm trạng thái phối hợp PACKING & BACKLOG:
+# Vì nhân sự thường xuất và nạp cả 2 file cùng đợt (chênh nhau khoảng 1-2 phút),
+# hệ thống sẽ chờ khi có đủ cả 2 file mới gửi thông báo vào Zalo (hoặc gửi sau timeout 3 phút).
+_PACK_BACKLOG_BATCH_STATE = {
+    "pending": False,
+    "first_sync_ts": 0.0,
+    "last_sync_ts": 0.0,
+    "has_new_packing": False,
+    "has_new_backlog": False,
+    "backlog_df": None,
+    "has_today_pack": False,
+}
+
+
 def sync_folder(cfg, drive_svc, bq_client, processed_map, is_full_sync, dry_run, only_folder):
     folder_name = cfg["folder_name"]
     if only_folder and only_folder.upper() != folder_name.upper():
@@ -578,17 +593,17 @@ def sync_folder(cfg, drive_svc, bq_client, processed_map, is_full_sync, dry_run,
             synced += 1
             print(f"✅ {len(df):,} dòng")
 
-            # Tự động quét và bắn tin nhắn cảnh báo sau khi dữ liệu và log đã cập nhật
+            # Ghi nhận trạng thái file mới cho cơ chế debounce phối hợp PACKING & BACKLOG
             if active_cfg["folder_name"] == "BACKLOG":
-                try:
-                    import zalo_notifier
-                    z_res = zalo_notifier.scan_and_alert_backlog_sla(df, force_send=True, notify_if_safe=True)
-                    if z_res.get("status") == "sent":
-                        print(f"  📢 Zalo Bot: {z_res.get('message')}")
-                    elif z_res.get("status") == "error":
-                        print(f"  ⚠️ Zalo Bot: {z_res.get('message')}")
-                except Exception:
-                    pass
+                now_ts = time.time()
+                _PACK_BACKLOG_BATCH_STATE["pending"] = True
+                _PACK_BACKLOG_BATCH_STATE["has_new_backlog"] = True
+                _PACK_BACKLOG_BATCH_STATE["backlog_df"] = df
+                if _PACK_BACKLOG_BATCH_STATE["first_sync_ts"] == 0.0:
+                    _PACK_BACKLOG_BATCH_STATE["first_sync_ts"] = now_ts
+                _PACK_BACKLOG_BATCH_STATE["last_sync_ts"] = now_ts
+                print("  📥 [Batch Alert] Đã ghi nhận nạp file BACKLOG.")
+
             elif active_cfg["folder_name"] == "PACKING":
                 try:
                     import zalo_notifier
@@ -597,15 +612,18 @@ def sync_folder(cfg, drive_svc, bq_client, processed_map, is_full_sync, dry_run,
                         vn_today = datetime.now(zalo_notifier.VN_TZ).date()
                         pack_dates = pd.to_datetime(df["pack_time"], errors="coerce").dt.date
                         has_today_data = bool((pack_dates == vn_today).any())
-                    
+
                     if has_today_data:
-                        z_res = zalo_notifier.scan_and_alert_packing_progress(force_send=True)
-                        if z_res.get("status") == "sent":
-                            print(f"  📢 Zalo Bot: {z_res.get('message')}")
-                        elif z_res.get("status") == "error":
-                            print(f"  ⚠️ Zalo Bot: {z_res.get('message')}")
+                        now_ts = time.time()
+                        _PACK_BACKLOG_BATCH_STATE["pending"] = True
+                        _PACK_BACKLOG_BATCH_STATE["has_new_packing"] = True
+                        _PACK_BACKLOG_BATCH_STATE["has_today_pack"] = True
+                        if _PACK_BACKLOG_BATCH_STATE["first_sync_ts"] == 0.0:
+                            _PACK_BACKLOG_BATCH_STATE["first_sync_ts"] = now_ts
+                        _PACK_BACKLOG_BATCH_STATE["last_sync_ts"] = now_ts
+                        print("  📥 [Batch Alert] Đã ghi nhận nạp file PACKING (có đơn hôm nay).")
                     else:
-                        print(f"  ℹ️ File PACKING chỉ có dữ liệu ngày cũ (không có đơn hôm nay), bỏ qua tự động báo tiến độ.")
+                        print("  ℹ️ File PACKING chỉ có dữ liệu ngày cũ (không có đơn hôm nay), bỏ qua tự động báo tiến độ.")
                 except Exception as e:
                     print(f"  ⚠️ Lỗi kiểm tra alert PACKING: {e}")
 
@@ -1285,6 +1303,105 @@ def sync_ot_folder(
     return synced, skipped
 
 
+def check_and_trigger_pack_backlog_alerts(
+    is_daemon: bool = False,
+    max_wait_sec: float = 180.0,
+    dry_run: bool = False,
+    only_folder: str = None,
+):
+    """
+    Kiểm tra và kích hoạt thông báo Zalo cho PACKING và BACKLOG:
+    - Khi cả 2 file PACKING và BACKLOG cùng có dữ liệu mới -> Gửi cả 2 báo cáo ngay lập tức.
+    - Nếu chỉ mới có 1 file và đang chạy daemon -> Chờ tối đa max_wait_sec (mặc định 180s = 3 phút).
+      Khi timeout hết giờ mà file kia chưa tới -> Gửi báo cáo cho file hiện có.
+    - Nếu không chạy daemon (chạy thủ công 1 lần) hoặc chạy riêng 1 folder -> Gửi ngay file hiện có, không chờ.
+    """
+    global _PACK_BACKLOG_BATCH_STATE
+    if not _PACK_BACKLOG_BATCH_STATE["pending"]:
+        return
+
+    if dry_run:
+        print("\n📢 [Batch Alert] [DRY RUN] Bỏ qua gửi Zalo alert.")
+        _PACK_BACKLOG_BATCH_STATE["pending"] = False
+        _PACK_BACKLOG_BATCH_STATE["first_sync_ts"] = 0.0
+        _PACK_BACKLOG_BATCH_STATE["last_sync_ts"] = 0.0
+        _PACK_BACKLOG_BATCH_STATE["has_new_packing"] = False
+        _PACK_BACKLOG_BATCH_STATE["has_new_backlog"] = False
+        _PACK_BACKLOG_BATCH_STATE["backlog_df"] = None
+        _PACK_BACKLOG_BATCH_STATE["has_today_pack"] = False
+        return
+
+    has_p = _PACK_BACKLOG_BATCH_STATE["has_new_packing"]
+    has_b = _PACK_BACKLOG_BATCH_STATE["has_new_backlog"]
+    now_ts = time.time()
+    elapsed = now_ts - _PACK_BACKLOG_BATCH_STATE["first_sync_ts"]
+
+    # TH1: Cả 2 file đều đã nạp đủ
+    both_ready = has_p and has_b
+
+    # TH2: Chạy 1 lần (không daemon) hoặc chỉ định đích danh 1 folder
+    single_run = (not is_daemon) or bool(only_folder)
+
+    # TH3: Chờ quá thời gian timeout (mặc định 180s = 3 phút)
+    timed_out = elapsed >= max_wait_sec
+
+    if not (both_ready or single_run or timed_out):
+        waiting_for = "BACKLOG" if not has_b else "PACKING"
+        print(
+            f"\n⏳ [Batch Alert] Đã nạp file {'PACKING' if has_p else 'BACKLOG'}, "
+            f"đang chờ file {waiting_for} (đã chờ {int(elapsed)}s/{int(max_wait_sec)}s)...",
+            flush=True,
+        )
+        return
+
+    # Kích hoạt gửi thông báo
+    import zalo_notifier
+
+    if both_ready:
+        delay_diff = int(abs(_PACK_BACKLOG_BATCH_STATE['last_sync_ts'] - _PACK_BACKLOG_BATCH_STATE['first_sync_ts']))
+        print(f"\n🎉 [Batch Alert] Đã nhận đủ cả 2 file PACKING và BACKLOG (chênh lệch {delay_diff}s)! Tiến hành gửi báo cáo Zalo...", flush=True)
+    elif timed_out:
+        print(f"\n⏰ [Batch Alert] Hết thời gian chờ {int(max_wait_sec)}s cho file còn lại. Tiến hành gửi báo cáo cho file đã nạp...", flush=True)
+    else:
+        print("\n📢 [Batch Alert] Chế độ chạy đơn lẻ (manual/single folder), tiến hành gửi báo cáo ngay...", flush=True)
+
+    # 1. Gửi báo cáo tiến độ đóng gói PACKING (nếu có dữ liệu mới hôm nay)
+    if has_p and _PACK_BACKLOG_BATCH_STATE.get("has_today_pack"):
+        try:
+            z_res = zalo_notifier.scan_and_alert_packing_progress(force_send=True)
+            if z_res.get("status") == "sent":
+                print(f"  📢 Zalo Bot (PACKING): {z_res.get('message')}")
+            elif z_res.get("status") == "error":
+                print(f"  ⚠️ Zalo Bot (PACKING): {z_res.get('message')}")
+        except Exception as e:
+            print(f"  ⚠️ Lỗi gửi alert PACKING: {e}")
+
+    # Chờ 1 giây giữa 2 tin nhắn để Zalo nhận đúng thứ tự
+    if both_ready:
+        time.sleep(1)
+
+    # 2. Gửi báo cáo tồn kho & SLA BACKLOG (nếu có dữ liệu mới)
+    if has_b:
+        try:
+            b_df = _PACK_BACKLOG_BATCH_STATE.get("backlog_df")
+            z_res = zalo_notifier.scan_and_alert_backlog_sla(b_df, force_send=True, notify_if_safe=True)
+            if z_res.get("status") == "sent":
+                print(f"  📢 Zalo Bot (BACKLOG): {z_res.get('message')}")
+            elif z_res.get("status") == "error":
+                print(f"  ⚠️ Zalo Bot (BACKLOG): {z_res.get('message')}")
+        except Exception as e:
+            print(f"  ⚠️ Lỗi gửi alert BACKLOG: {e}")
+
+    # Đặt lại trạng thái bộ đệm
+    _PACK_BACKLOG_BATCH_STATE["pending"] = False
+    _PACK_BACKLOG_BATCH_STATE["first_sync_ts"] = 0.0
+    _PACK_BACKLOG_BATCH_STATE["last_sync_ts"] = 0.0
+    _PACK_BACKLOG_BATCH_STATE["has_new_packing"] = False
+    _PACK_BACKLOG_BATCH_STATE["has_new_backlog"] = False
+    _PACK_BACKLOG_BATCH_STATE["backlog_df"] = None
+    _PACK_BACKLOG_BATCH_STATE["has_today_pack"] = False
+
+
 def run_sync_cycle(drive_svc, bq_client, is_full, dry_run, folder, is_daemon: bool = False):
     try:
         rows = bq_client.query(
@@ -1305,6 +1422,14 @@ def run_sync_cycle(drive_svc, bq_client, is_full, dry_run, folder, is_daemon: bo
         )
         total_synced  += s
         total_skipped += sk
+
+    # Kiểm tra kích hoạt thông báo Zalo phối hợp cho PACKING & BACKLOG
+    check_and_trigger_pack_backlog_alerts(
+        is_daemon=is_daemon,
+        max_wait_sec=180.0,
+        dry_run=dry_run,
+        only_folder=folder,
+    )
 
     # Quét thư mục CHECK QUÁ HẠN (4 file thô JD WMS tự nhận diện + cảnh báo Zalo tự động)
     s_sla, sk_sla = sync_check_qua_han_folder(
