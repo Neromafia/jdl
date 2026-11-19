@@ -407,7 +407,17 @@ def format_packing_progress_report(df_pack: pd.DataFrame, df_bl: pd.DataFrame, n
         time_headers.append(f"Dữ liệu cập nhật lúc: {last_update_str}")
     time_header_text = "\n".join(time_headers)
 
-    bl_orders = int(df_bl['order_no'].nunique()) if (df_bl is not None and not df_bl.empty) else 0
+    bl_orders = 0
+    if df_bl is not None and not df_bl.empty:
+        if 'order_no' in df_bl.columns:
+            if len(df_bl) == 1 and pd.api.types.is_numeric_dtype(df_bl['order_no']):
+                bl_orders = int(df_bl['order_no'].iloc[0])
+            else:
+                bl_orders = int(df_bl['order_no'].nunique())
+        elif 'total_orders' in df_bl.columns:
+            bl_orders = int(df_bl['total_orders'].iloc[0])
+        else:
+            bl_orders = len(df_bl)
 
     if df_pack is None or df_pack.empty:
         return (
@@ -517,7 +527,17 @@ def format_etc_report(df_pack: pd.DataFrame, df_bl: pd.DataFrame, now_vn: dateti
         time_headers.append(f"Dữ liệu cập nhật lúc: {last_update_str}")
     time_header_text = "\n".join(time_headers)
 
-    bl_orders = int(df_bl['order_no'].nunique()) if (df_bl is not None and not df_bl.empty) else 0
+    bl_orders = 0
+    if df_bl is not None and not df_bl.empty:
+        if 'order_no' in df_bl.columns:
+            if len(df_bl) == 1 and pd.api.types.is_numeric_dtype(df_bl['order_no']):
+                bl_orders = int(df_bl['order_no'].iloc[0])
+            else:
+                bl_orders = int(df_bl['order_no'].nunique())
+        elif 'total_orders' in df_bl.columns:
+            bl_orders = int(df_bl['total_orders'].iloc[0])
+        else:
+            bl_orders = len(df_bl)
     total_packed = int(df_pack['order_no'].nunique()) if (df_pack is not None and not df_pack.empty) else 0
 
     if bl_orders == 0:
