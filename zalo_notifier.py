@@ -2255,7 +2255,15 @@ def format_ot_report(df: pd.DataFrame, period_label: str, is_single_day: bool = 
 
     pct_tl = (tl_ot / total_ot * 100.0) if total_ot > 0 else 0.0
     pct_st = (st_ot / total_ot * 100.0) if total_ot > 0 else 0.0
-    ot_vs_regular_pct = (total_ot / total_regular * 100.0) if total_regular > 0 else 0.0
+    ot_pct_of_total_hours = (total_ot / total_hours * 100.0) if total_hours > 0 else 0.0
+
+    # KPI OT: Mục tiêu <= 10.0% tổng giờ công và không vượt quá 100h/ngày
+    kpi_max_hours = 100.0 * (n_days if not single_view else 1)
+    kpi_max_pct = 10.0
+    is_hours_pass = total_ot <= kpi_max_hours
+    is_pct_pass = ot_pct_of_total_hours <= kpi_max_pct
+    overall_kpi_pass = is_hours_pass and is_pct_pass
+    kpi_status = "ĐẠT KPI ✅" if overall_kpi_pass else "VƯỢT KPI ⚠️"
 
     period_line = f"Ngày: {period_label}" if single_view else f"Ngày: {period_label} ({n_days} ngày có dữ liệu)"
     time_headers = [period_line]
@@ -2279,9 +2287,12 @@ def format_ot_report(df: pd.DataFrame, period_label: str, is_single_day: bool = 
     lines.append(f"- Tổng giờ OT: {total_ot:,.2f}h")
     lines.append(f"  • Tổ trưởng (TL): {tl_ot:,.2f}h ({pct_tl:.1f}% tổng OT) - {len(tl_ot_df)} người" if single_view else f"  • Tổ trưởng (TL): {tl_ot:,.2f}h ({pct_tl:.1f}% tổng OT)")
     lines.append(f"  • Nhân viên: {st_ot:,.2f}h ({pct_st:.1f}% tổng OT) - {len(st_ot_df)} người" if single_view else f"  • Nhân viên: {st_ot:,.2f}h ({pct_st:.1f}% tổng OT)")
-    lines.append(f"- Tỷ lệ OT: {ot_vs_regular_pct:.1f}%")
+    lines.append(f"- Tỷ lệ OT / Giờ công: {ot_pct_of_total_hours:.1f}% (Mục tiêu <= {kpi_max_pct:.0f}%)")
+    lines.append(f"- Đánh giá KPI OT: {kpi_status}")
+    lines.append(f"  • Số giờ OT: {total_ot:,.2f}h / Tối đa {kpi_max_hours:.0f}h ({'VƯỢT +' + f'{total_ot - kpi_max_hours:,.2f}h ⚠️' if not is_hours_pass else 'Đạt chuẩn ✅'})")
+    lines.append(f"  • Tỷ lệ OT: {ot_pct_of_total_hours:.1f}% / Mục tiêu <= {kpi_max_pct:.0f}% ({'VƯỢT +' + f'{ot_pct_of_total_hours - kpi_max_pct:.1f}% ⚠️' if not is_pct_pass else 'Đạt chuẩn ✅'})")
 
-    # 2. Chi tiết theo Attendance Group: tên nhóm - tổng giờ OT - SL TL (giờ OT của TL - % so với tổng OT) - SL nhân viên (giờ OT của nhân viên - % so với tổng OT)
+    # 2. Chi tiết theo Attendance Group: tên nhóm - tổng giờ OT - SL TL (giờ OT của TL - % so với tổng OT cả kho) - SL nhân viên (giờ OT của nhân viên - % so với tổng OT cả kho)
     lines.append("")
     lines.append("2. CHI TIẾT THEO ATTENDANCE GROUP")
     if ot_df.empty or total_ot <= 0:
@@ -2303,18 +2314,19 @@ def format_ot_report(df: pd.DataFrame, period_label: str, is_single_day: bool = 
             tl_grp_ot = float(tl_g["ot_hours"].sum())
             st_grp_ot = float(st_g["ot_hours"].sum())
 
-            pct_tl_grp = (tl_grp_ot / grp_tot_ot * 100.0) if grp_tot_ot > 0 else 0.0
-            pct_st_grp = (st_grp_ot / grp_tot_ot * 100.0) if grp_tot_ot > 0 else 0.0
+            # % so với tổng OT của cả kho (ví dụ ngày 18/11 là so với 171.45h)
+            pct_tl_all = (tl_grp_ot / total_ot * 100.0) if total_ot > 0 else 0.0
+            pct_st_all = (st_grp_ot / total_ot * 100.0) if total_ot > 0 else 0.0
 
             grp_data.append({
                 "group": grp,
                 "total_ot": grp_tot_ot,
                 "tl_cnt": tl_cnt,
                 "tl_ot": tl_grp_ot,
-                "pct_tl": pct_tl_grp,
+                "pct_tl": pct_tl_all,
                 "st_cnt": st_cnt,
                 "st_ot": st_grp_ot,
-                "pct_st": pct_st_grp,
+                "pct_st": pct_st_all,
             })
 
         grp_df = pd.DataFrame(grp_data).sort_values(by="total_ot", ascending=False)
