@@ -216,125 +216,144 @@ def format_sla_alert_message(df_urgent: pd.DataFrame, df_overdue: pd.DataFrame, 
 
 def format_detailed_backlog_list(df_backlog: pd.DataFrame, now_vn: datetime.datetime = None, max_hours: float = 2.5, last_update_str: str = None) -> list[str]:
     """
-    Tạo danh sách toàn bộ các đơn sắp trễ SLA (quá hạn hoặc sắp quá hạn <= max_hours tiếng).
-    Phân tách rõ ràng giữa ĐÃ QUÁ HẠN và SẮP QUÁ HẠN:
-      - Đơn đã trễ hạn luôn được đưa lên ĐẦU danh sách để ưu tiên xử lý gấp.
-      - Sắp xếp theo: Khách hàng -> Thời gian còn lại.
-    Trả về danh sách các tin nhắn (tự động chia nhỏ nếu vượt quá 1800 ký tự để gửi qua Zalo).
+    Tạo báo cáo tồn kho Backlog & SLA theo từng khách hàng (Phương án 2):
+    - Đầy đủ số lượng ĐƠN và số lượng PCS.
+    - Không emoji.
+    - Nhóm rủi ro SLA (đã trễ hoặc sắp trễ <= max_hours) đưa lên đầu kèm mốc giờ hạn.
+    - Nhóm an toàn (> max_hours) liệt kê theo số lượng đơn giảm dần.
     """
     if now_vn is None:
         now_vn = datetime.datetime.now(VN_TZ).replace(tzinfo=None)
 
-    time_str = now_vn.strftime('%H:%M:%S %d/%m/%Y')
+    time_str = now_vn.strftime('%H:%M %d/%m/%Y')
     if last_update_str is None:
         last_update_str = get_last_data_update_time("BACKLOG")
 
     time_headers = [f"Thời gian báo cáo: {time_str}"]
     if last_update_str:
         time_headers.append(f"Dữ liệu cập nhật lúc: {last_update_str}")
-    time_header_text = "\n".join(time_headers)
 
     if df_backlog is None or df_backlog.empty:
-        return [f"[DANH SÁCH ĐƠN HÀNG SẮP QUÁ HẠN SLA]\n{time_header_text}\nKhông có dữ liệu đơn Backlog tồn đọng."]
+        return ["[BÁO CÁO TỒN KHO BACKLOG & SLA]\n" + "\n".join(time_headers) + "\n\nKhông có dữ liệu đơn Backlog tồn đọng."]
 
     df = df_backlog.copy()
     if 'prod_dt' not in df.columns:
-        df['prod_dt'] = pd.to_datetime(df['production_end_time'], errors='coerce')
+        if 'production_end_time' in df.columns:
+            df['prod_dt'] = pd.to_datetime(df['production_end_time'], errors='coerce')
+        else:
+            return ["[BÁO CÁO TỒN KHO BACKLOG & SLA]\n" + "\n".join(time_headers) + "\n\nKhông tìm thấy thông tin hạn sản xuất (Production End Time)."]
+
+    if 'piece_qty' in df.columns:
+        df['piece_qty'] = pd.to_numeric(df['piece_qty'], errors='coerce').fillna(0).astype(int)
+    else:
+        df['piece_qty'] = 0
+
+    df['clean_owner'] = df['owner_name'].apply(clean_packing_client_name)
 
     df_today = df[df['prod_dt'].dt.date == now_vn.date()].copy()
     if df_today.empty:
-        return [f"[DANH SÁCH ĐƠN HÀNG SẮP QUÁ HẠN SLA]\n{time_header_text}\nKhông có đơn nào tồn đọng trong ngày hôm nay."]
+        date_str = now_vn.date().strftime('%d/%m/%Y')
+        return ["[BÁO CÁO TỒN KHO BACKLOG & SLA]\n" + "\n".join(time_headers) + f"\n\nKhông có đơn nào tồn đọng trong ngày hôm nay ({date_str})."]
 
     df_today['diff_sec'] = (df_today['prod_dt'] - now_vn).dt.total_seconds()
-    # Lọc đơn rủi ro: quá hạn (diff_sec < 0) hoặc sắp quá hạn trong max_hours
     df_risk = df_today[df_today['diff_sec'] <= max_hours * 3600].copy()
 
-    if df_risk.empty:
-        next_min_sec = df_today['diff_sec'].min()
-        next_h = next_min_sec / 3600
-        return [
-            f"[DANH SÁCH ĐƠN HÀNG SẮP QUÁ HẠN SLA]\n"
-            f"{time_header_text}\n"
-            f"Hiện không có đơn nào quá hạn hoặc sắp quá hạn (trong {max_hours:g} tiếng tới).\n"
-            f"Đơn có hạn gần nhất còn khoảng {next_h:.1f} tiếng nữa.\n"
-            f"Tổng đơn tồn hôm nay: {len(df_today):,} đơn."
-        ]
+    tot_bl_orders = len(df_today)
+    tot_bl_pcs = int(df_today['piece_qty'].sum())
 
-    # Tách bạch rõ ràng ĐÃ QUÁ HẠN vs SẮP QUÁ HẠN
-    df_overdue = df_risk[df_risk['diff_sec'] < 0].copy()
-    df_urgent  = df_risk[df_risk['diff_sec'] >= 0].copy()
+    tot_risk_orders = len(df_risk)
+    tot_risk_pcs = int(df_risk['piece_qty'].sum())
+    tot_overdue_orders = int((df_risk['diff_sec'] < 0).sum())
+    tot_overdue_pcs = int(df_risk[df_risk['diff_sec'] < 0]['piece_qty'].sum())
+    tot_urgent_orders = int((df_risk['diff_sec'] >= 0).sum())
+    tot_urgent_pcs = int(df_risk[df_risk['diff_sec'] >= 0]['piece_qty'].sum())
 
-    tot_overdue = len(df_overdue)
-    tot_urgent  = len(df_urgent)
-    total_orders = tot_overdue + tot_urgent
-
-    # Tiêu đề tóm tắt rõ số lượng từng loại
-    if tot_overdue > 0 and tot_urgent > 0:
-        summary_line = f"Tổng đơn cần xử lý: {total_orders:,} đơn (Đã trễ: {tot_overdue:,} | Sắp trễ: {tot_urgent:,})"
-    elif tot_overdue > 0:
-        summary_line = f"Tổng đơn ĐÃ QUÁ HẠN: {tot_overdue:,} đơn"
-    else:
-        summary_line = f"Tổng đơn SẮP QUÁ HẠN: {tot_urgent:,} đơn"
-
-    messages = []
-    current_lines = [
-        "[DANH SÁCH ĐƠN HÀNG SẮP QUÁ HẠN SLA]",
+    lines = [
+        "[BÁO CÁO TỒN KHO BACKLOG & SLA]",
     ] + time_headers + [
-        summary_line,
-        ""
+        "",
+        "1. TỔNG QUAN",
+        f"- Tổng tồn chờ đóng: {tot_bl_orders:,} đơn ({tot_bl_pcs:,} pcs)",
     ]
 
-    def _append_section(sub_df: pd.DataFrame, section_title: str):
-        nonlocal current_lines
-        if sub_df.empty:
-            return
-        
-        current_lines.append(section_title)
-        sub_sorted = sub_df.sort_values(by=['owner_name', 'diff_sec'], ascending=[True, True])
-        
-        for owner, grp in sub_sorted.groupby('owner_name', sort=False):
-            owner_header = f"Khách hàng: {owner} ({len(grp)} đơn)"
-            lines_for_owner = [owner_header]
+    h_label = f"{max_hours:g} tiếng" if max_hours >= 1 else f"{int(max_hours * 60)} phút"
+    if tot_risk_orders > 0:
+        over_info = f"Đã trễ: {tot_overdue_orders:,}"
+        urg_info = f"Sắp trễ: {tot_urgent_orders:,}"
+        lines.append(f"- Đơn rủi ro SLA: {tot_risk_orders:,} đơn ({tot_risk_pcs:,} pcs) [{over_info} | {urg_info}]")
+    else:
+        lines.append(f"- Đơn rủi ro SLA: 0 đơn (Tất cả đơn đều an toàn > {h_label})")
 
-            for _, row in grp.iterrows():
-                d_sec = row['diff_sec']
-                if d_sec < 0:
-                    over_sec = abs(d_sec)
-                    h = int(over_sec // 3600)
-                    m = int((over_sec % 3600) // 60)
-                    t_rem = f"ĐÃ TRỄ {h}h{m:02d}p" if h > 0 else f"ĐÃ TRỄ {m} phút"
-                else:
-                    h = int(d_sec // 3600)
-                    m = int((d_sec % 3600) // 60)
-                    t_rem = f"còn {h}h{m:02d}p" if h > 0 else f"còn {m} phút"
+    lines.extend(["", "2. TỒN KHO THEO KHÁCH HÀNG"])
 
-                dt_str = str(row['production_end_time'])[11:16]
-                lines_for_owner.append(f"- {row['order_no']}: {t_rem} (Hạn {dt_str})")
+    all_summary = []
+    for owner, grp in df_today.groupby("clean_owner"):
+        grp_r = grp[grp["diff_sec"] <= max_hours * 3600]
+        n_risk_ord = len(grp_r)
+        n_risk_pcs = int(grp_r["piece_qty"].sum())
+        n_over_ord = int((grp_r["diff_sec"] < 0).sum())
+        n_over_pcs = int(grp_r[grp_r["diff_sec"] < 0]["piece_qty"].sum())
+        n_urg_ord = int((grp_r["diff_sec"] >= 0).sum())
+        n_urg_pcs = int(grp_r[grp_r["diff_sec"] >= 0]["piece_qty"].sum())
+        min_t_str = str(grp_r["production_end_time"].min())[11:16] if n_risk_ord > 0 else ""
+        all_summary.append({
+            "owner": owner,
+            "total_orders": len(grp),
+            "total_pcs": int(grp["piece_qty"].sum()),
+            "risk_orders": n_risk_ord,
+            "risk_pcs": n_risk_pcs,
+            "overdue_orders": n_over_ord,
+            "overdue_pcs": n_over_pcs,
+            "urgent_orders": n_urg_ord,
+            "urgent_pcs": n_urg_pcs,
+            "min_time": min_t_str
+        })
 
-            lines_for_owner.append("")  # Dòng trống cách giữa các khách hàng
+    risk_clients = [x for x in all_summary if x["risk_orders"] > 0]
+    safe_clients = [x for x in all_summary if x["risk_orders"] == 0]
 
-            # Kiểm tra độ dài tin nhắn (Zalo giới hạn ~2000 ký tự)
-            test_text = "\n".join(current_lines + lines_for_owner)
-            if len(test_text) > 1800:
-                messages.append("\n".join(current_lines).strip())
-                current_lines = [
-                    "[DANH SÁCH ĐƠN HÀNG SẮP QUÁ HẠN SLA (tiếp theo)]",
-                    ""
-                ] + lines_for_owner
-            else:
-                current_lines.extend(lines_for_owner)
+    risk_clients.sort(key=lambda x: (x["overdue_orders"], x["risk_orders"], x["total_orders"]), reverse=True)
+    safe_clients.sort(key=lambda x: x["total_orders"], reverse=True)
 
-    # 1. ĐƯA ĐƠN ĐÃ QUÁ HẠN LÊN ĐẦU TIÊN
-    if tot_overdue > 0:
-        _append_section(df_overdue, f"ĐÃ QUÁ HẠN ({tot_overdue:,} đơn)")
+    if risk_clients:
+        lines.append("NHÓM CÓ RỦI RO SLA:")
+        for r in risk_clients:
+            sla_parts = []
+            if r["overdue_orders"] > 0:
+                sla_parts.append(f"ĐÃ TRỄ: {r['overdue_orders']:,} đơn ({r['overdue_pcs']:,} pcs)")
+            if r["urgent_orders"] > 0:
+                sla_parts.append(f"Sắp trễ: {r['urgent_orders']:,} đơn ({r['urgent_pcs']:,} pcs) - Hạn {r['min_time']}")
+            note_str = " | ".join(sla_parts)
+            lines.append(f"- {r['owner']}: {r['total_orders']:,} đơn ({r['total_pcs']:,} pcs) [{note_str}]")
 
-    # 2. TIẾP THEO LÀ ĐƠN SẮP QUÁ HẠN
-    if tot_urgent > 0:
-        h_label = f"{max_hours:g} tiếng" if max_hours >= 1 else f"{int(max_hours*60)} phút"
-        _append_section(df_urgent, f"SẮP QUÁ HẠN (<= {h_label}) ({tot_urgent:,} đơn)")
+    if safe_clients:
+        if risk_clients:
+            lines.append("")
+            lines.append(f"NHÓM AN TOÀN (> {h_label}):")
+        else:
+            lines.append(f"TẤT CẢ KHÁCH HÀNG ĐỀU AN TOÀN (> {h_label}):")
+        for r in safe_clients:
+            lines.append(f"- {r['owner']}: {r['total_orders']:,} đơn ({r['total_pcs']:,} pcs)")
 
-    if current_lines:
-        messages.append("\n".join(current_lines).strip())
+    full_message = "\n".join(lines).strip()
+
+    if len(full_message) <= 1800:
+        return [full_message]
+
+    messages = []
+    chunk = []
+    chunk_len = 0
+    for line in lines:
+        line_len = len(line) + 1
+        if chunk_len + line_len > 1800:
+            messages.append("\n".join(chunk).strip())
+            chunk = ["[BÁO CÁO TỒN KHO BACKLOG & SLA (tiếp theo)]", line]
+            chunk_len = len(chunk[0]) + 1 + line_len
+        else:
+            chunk.append(line)
+            chunk_len += line_len
+    if chunk:
+        messages.append("\n".join(chunk).strip())
 
     return messages
 
@@ -360,6 +379,8 @@ def classify_packing_client(name: str) -> str:
 
 def clean_packing_client_name(name: str) -> str:
     """Rút gọn tên thương hiệu khách hàng cho gọn gàng, dễ nhìn."""
+    if pd.isna(name) or not str(name).strip() or str(name).strip().lower() in ('nan', 'none', '<na>', 'null'):
+        return 'Khác'
     u = str(name).upper()
     if 'KKV' in u or 'JINHE' in u:
         return 'KKV'
@@ -385,6 +406,8 @@ def clean_packing_client_name(name: str) -> str:
         return 'CORESNAP'
     if 'TOP ENTERPRISE' in u:
         return 'TOP ENTERPRISE'
+    if '义乌' in u or '厚载' in u:
+        return 'Khác'
     return str(name).strip()
 
 
@@ -990,7 +1013,7 @@ def scan_and_alert_backlog_sla(
         if notify_if_safe:
             last_sync = get_last_data_update_time("BACKLOG")
             sync_line = f"\nDữ liệu cập nhật lúc: {last_sync}" if last_sync else ""
-            msg = f"[DANH SÁCH ĐƠN HÀNG SẮP QUÁ HẠN SLA]\nThời gian báo cáo: {now_vn.strftime('%H:%M:%S %d/%m/%Y')}{sync_line}\nKhông có đơn nào tồn đọng trong ngày hôm nay ({today_vn})."
+            msg = f"[BÁO CÁO TỒN KHO BACKLOG & SLA]\nThời gian báo cáo: {now_vn.strftime('%H:%M %d/%m/%Y')}{sync_line}\n\nKhông có đơn nào tồn đọng trong ngày hôm nay ({today_vn.strftime('%d/%m/%Y')})."
             send_zalo_message(msg, target_chat_id=chat_id)
         return {"status": "no_today_orders", "message": f"Không có đơn nào có hạn hôm nay ({today_vn})."}
 

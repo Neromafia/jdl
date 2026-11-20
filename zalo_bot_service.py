@@ -2,7 +2,7 @@
 Zalo Bot Background Service for JDL Dashboard
 Lắng nghe các tin nhắn/lệnh từ Nhóm Zalo hoặc chat 1-1 (qua polling getUpdates)
 Hỗ trợ lệnh:
-  - /backlog hoặc backlog: Quét và gửi danh sách chi tiết các đơn sắp quá hạn SLA
+  - /backlog hoặc backlog: Báo cáo tồn kho Backlog & cảnh báo SLA theo khách hàng
   - /ping hoặc test: Kiểm tra trạng thái hoạt động của Bot
 """
 
@@ -165,7 +165,7 @@ def call_gemini_ai(prompt: str, user_name: str = "") -> str:
             f"Chào {user_name or 'bạn'}! Tôi là Bot Trợ lý Kho Vận JDL (JingDong Logistics).\n\n"
             f"Hiện tại tôi hỗ trợ các lệnh tra cứu số liệu kho tự động:\n"
             f"- order : Xem tổng đơn nhận và phân loại B2B vs B2C\n"
-            f"- backlog : Xem danh sách đơn sắp quá hạn SLA\n"
+            f"- backlog : Báo cáo tồn kho Backlog & cảnh báo SLA theo khách hàng\n"
             f"- packing : Xem tiến độ đóng gói theo nhóm khách hàng\n"
             f"- etc / clear : Dự báo thời gian hoàn thành (Clear Time)\n\n"
             f"👉 Để kích hoạt tính năng trò chuyện AI tự do với Gemini, vui lòng bổ sung gemini.api_key vào file cấu hình."
@@ -484,7 +484,7 @@ def start_bot_listener(stop_event: threading.Event = None):
                             f"Thời gian: {datetime.datetime.now(VN_TZ).strftime('%H:%M %d/%m/%Y')}\n\n"
                             f"Các câu lệnh khả dụng:\n"
                             f"- order : Xem tổng đơn nhận khách đổ xuống hôm nay (phân loại B2B vs B2C)\n"
-                            f"- backlog : Xem danh sách đơn hàng sắp quá hạn SLA (Khách hàng -> Time remaining)\n"
+                            f"- backlog : Báo cáo tồn kho Backlog & cảnh báo SLA theo khách hàng\n"
                             f"- packing : Xem tiến độ đóng gói hôm nay (phân loại B2B vs B2C)\n"
                             f"- etc / clear : Dự báo thời gian hoàn thành (Clear Time) dựa trên tốc độ đóng gói thực tế\n"
                             f"- OT : Tra cứu giờ công, OT (>8h) & lỗi nghiêm trọng (VD: '@bot OT ngày 17/11', '@bot OT từ 1/11 đến 17/11', '@bot OT tháng 11')\n"
